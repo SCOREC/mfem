@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
   std::cout<<"Vs - Flags "<<std::endl;
   Vs.GetMemory().PrintFlags();
 
-  const double *d_x = V.ReadWrite(); // Pointer to device memory
+  double *d_x = V.ReadWrite(); // Pointer to device memory
   //const double *d_x = V.Write(); // Pointer to device memory
   //const double *d_x = V.Read(); // Pointer to device memory
   std::cout<<"Contents of V on the GPU"<<std::endl;
@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
   //RAJA::forall<RAJA::cuda_exec<CUDA_BLOCK_SZ>>
     //(RAJA::RangeSegment(0,N), [=] RAJA_DEVICE (int i) {
        d_x[i] = coords[i] ;
-       printf("%.1f coords=%d", d_x[i], coords[i]);
+       printf("%.1f coords=%.1f\n", d_x[i], coords[i]);
   //  });
   };
   Omega_h::parallel_for(N, fill);
