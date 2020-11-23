@@ -11,7 +11,6 @@
 // Description:  see note
 
 #include "mfem.hpp"
-//#include "unit_tests.hpp"
 #include <fstream>
 #include <iostream>
 
@@ -22,6 +21,7 @@
 #include <Omega_h_build.hpp>
 
 #include <Omega_h_for.hpp>
+#include "./../../mesh/Omega_h.hpp"
 
 #ifndef MFEM_USE_OMEGAH
 #error This example requires that MFEM is built with MFEM_USE_OMEGAH=YES
@@ -76,6 +76,8 @@ int main(int argc, char *argv[])
   };
   Omega_h::parallel_for(N, fill);
   printf("\n");
+
+  OmegaMesh(&o_mesh, 0, 0, false);
 
   return 0;
 }

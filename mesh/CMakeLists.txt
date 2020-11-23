@@ -73,6 +73,13 @@ if (MFEM_USE_PUMI)
     pumi.hpp)
 endif()
 
+if (MFEM_USE_OMEGAH)
+  list(APPEND SRCS
+    Omega_h.cpp)
+  list(APPEND HDRS
+    Omega_h.hpp)
+endif()
+
 convert_filenames_to_full_paths(SRCS)
 convert_filenames_to_full_paths(HDRS)
 
