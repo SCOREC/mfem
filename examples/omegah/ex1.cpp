@@ -71,11 +71,8 @@ int main(int argc, char *argv[])
   auto coords = o_mesh.Omega_h::Mesh::coords();
 
   auto fill = OMEGA_H_LAMBDA (Omega_h::LO i) {
-  //RAJA::forall<RAJA::cuda_exec<CUDA_BLOCK_SZ>>
-    //(RAJA::RangeSegment(0,N), [=] RAJA_DEVICE (int i) {
        d_x[i] = coords[i] ;
        printf("%.1f coords=%.1f\n", d_x[i], coords[i]);
-  //  });
   };
   Omega_h::parallel_for(N, fill);
   printf("\n");
