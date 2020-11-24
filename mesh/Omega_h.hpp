@@ -49,7 +49,7 @@ protected:
 
    // Readers for PUMI mesh formats, used in the Load() method.
    void ReadOmegaMesh(Omega_h::Mesh* o_mesh, Omega_h::LOs v_num_loc,
-                       const int curved = 0);
+                      const int curved = 0);
 
    void OhLoad(Omega_h::Mesh* o_mesh, int generate_edges, int refine,
                     bool fix_orientation);

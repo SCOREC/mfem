@@ -6,8 +6,6 @@
 // Sample runs:
 //    ex1
 //
-// Note:         generates a 2x2 triangle mesh
-//
 // Description:  see note
 
 #include "mfem.hpp"
@@ -21,62 +19,114 @@
 #include <Omega_h_build.hpp>
 
 #include <Omega_h_for.hpp>
-#include "./../../mesh/Omega_h.hpp"
+#include <Omega_h_element.hpp>
+#include <Omega_h_mark.hpp>
 
 #ifndef MFEM_USE_OMEGAH
 #error This example requires that MFEM is built with MFEM_USE_OMEGAH=YES
 #endif
 
-//using namespace std;
 using namespace mfem;
+
+namespace oh = Omega_h;
 
 int main(int argc, char *argv[])
 {
-  auto lib = Omega_h::Library();
+  auto lib = oh::Library();
 
   Device device("cuda");
   device.Print();
   const MemoryType d_mt = device.GetMemoryType();
 
-  int N = 10;   // Base vector size
-  int nSub = 5; // Sub vector size
+  auto o_mesh = oh::build_box(lib.world(), OMEGA_H_SIMPLEX,
+                                   1., 1., 0, 2, 2, 0);
+  oh::vtk::write_parallel("box", &o_mesh);
 
-  double *x = new double[N]; // Allocate base vector data
+  // things needed from omegaH mesh //
+  int Dim = o_mesh.oh::Mesh::dim();
+  auto coords = o_mesh.oh::Mesh::coords();
+  const unsigned long int nverts = coords.size()/Dim;
+  const unsigned long int nelems = o_mesh.oh::Mesh::nelems();
+  auto elem2vert = o_mesh.oh::Mesh::ask_down(Dim, oh::VERT);
+  auto elem2vert_degree = oh::element_degree(OMEGA_H_SIMPLEX,
+    Dim, oh::VERT);
+  // to get the boundary and boundary elements, we will need to bring in the
+  // ids of geom ents? or i think ther is an api which will give me the
+  // classified elems.
+  // can look at mark exposed sides and mark by exposure
+  
+  oh::Write<oh::LO> NumOfBdrElements = 0;
 
-  // Shallow copy into MFEM vector + read command to copy to the GPU
-  Vector V(x, N); V.ReadWrite();
-  //Vector V(x, N); V.Write();
-  //Vector V(x, N); V.Read();
+  auto exposed_sides = mark_exposed_sides (&o_mesh);
+  auto ns = o_mesh.nents (Dim - 1); // num. of sides
+  auto s2sc = o_mesh.ask_up (Dim - 1, Dim).a2ab;
+  auto sc2c = o_mesh.ask_up (Dim - 1, Dim).ab2b;
+  auto f = OMEGA_H_LAMBDA (oh::LO s) {
+    if ((s2sc[s + 1] - s2sc[s]) < 2) {
+      NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
+    }
+  };
+  oh::parallel_for(ns, f, "count_bdrElems");
+  oh::Write<oh::LO> boundary(NumOfBdrElements);// note the mfem boundary array is of
+  // type Arrary<Element *>, so this boundary will need to be type cast
+  // now get IDs of boundary elements
+  oh::Write<oh::LO> iter_bdrElems = 0;
+  auto get_bdrElemId = OMEGA_H_LAMBDA (oh::LO s) {
+    if ((s2sc[s + 1] - s2sc[s]) < 2) {
+      ++iter_bdrElems[0];
+      boundary[iter_bdrElems[0]] = sc2c[s2sc[s]];// get the id of the side's
+      // adjacent cell
+    }
+  };
+  oh::parallel_for(ns, get_bdrElemId, "get_bdrElemId");
+  // after this get the verts of each doundary element using the ask_down
+  // note that following the readPumiElement, 
+  auto NumOfBdrElements_h = oh::HostWrite<oh::LO>(NumOfBdrElements);
+/*
+  int NumOfBdrElements_int = (NumOfBdrElements_h);
+  auto get_bdrElemVerts = OMEGA_H_LAMBDA (oh::LO i) {
+    boundary[i] = sc2c[s2sc[i]];// get the id of the side's
+  };
+  oh::parallel_for(NumOfBdrElements_h, get_bdrElemVerts, "get_bdrElemVerts");
+*/
 
-  // Shallow copy into MFEM vector + annotate as reference to a base
-  // vector
-  // Similar to doing double * Vs = &x[nSub]; // Pointer to sub-vector
-  // data
-  Vector Vs; Vs.MakeRef(V, nSub, (N-nSub)); // MakeRef(vector, offset,size)
+/*
+  // the logic to create elem in mfem
+  // now the ReadPumiElement, i.e. read elem2verts for BdrElements
+  // note here an Element *el, which is ptr to mfem element will be created
+  // and vertices will be assigned to it
+  //note here the elements to vert connectivity will have to be created
+  el = NewElement(classDim()); // ptr to mfem element
+  int nv, *v;
+  // Create element in MFEM
+  nv = el->GetNVertices();
+  v  = el->GetVertices();
+  // Fill the connectivity
+  for (int i = 0; i < nv; ++i) {
+    v[i] = apf::getNumber(vert_num, Verts[i], 0, 0);
+  }
+*/
+  //v_num_loc is number of local vertices which apf creates. dont think its
+  //needded from omegah mesh
 
-  std::cout<<"V - Flags"<<std::endl;
-  V.GetMemory().PrintFlags();
-
-  std::cout<<"Vs - Flags "<<std::endl;
-  Vs.GetMemory().PrintFlags();
-
-  double *d_x = V.ReadWrite(); // Pointer to device memory
-  //const double *d_x = V.Write(); // Pointer to device memory
-  //const double *d_x = V.Read(); // Pointer to device memory
+  // example of copying data from omega to mfem device mem.
+  int coords_size = coords.size(); // Base vector size
+  double *x = new double[coords_size]; // Allocate base vector data
+  Vector V(x, coords_size);
+  V.ReadWrite();
+  //V.Write();
+  //V.Read();
+  double *coords_mfem = V.ReadWrite(); // Pointer to device memory
   std::cout<<"Contents of V on the GPU"<<std::endl;
 
-  auto o_mesh = Omega_h::build_box(lib.world(), OMEGA_H_SIMPLEX,
-                                 1., 1., 0, 2, 2, 0);
-  Omega_h::vtk::write_parallel("box", &o_mesh);
-  auto coords = o_mesh.Omega_h::Mesh::coords();
-
-  auto fill = OMEGA_H_LAMBDA (Omega_h::LO i) {
-       d_x[i] = coords[i] ;
-       printf("%.1f coords=%.1f\n", d_x[i], coords[i]);
+  auto fill = OMEGA_H_LAMBDA (oh::LO i) {
+    coords_mfem[i] = coords[i];
+    printf("%.1f coords=%.1f\n", coords_mfem[i], coords[i]);
   };
-  Omega_h::parallel_for(N, fill);
+  oh::parallel_for(coords_size, fill);
   printf("\n");
 
+  // call omegaH constructor
   OmegaMesh(&o_mesh, 0, 0, false);
 
   return 0;
