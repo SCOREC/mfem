@@ -15,7 +15,6 @@
 #include "../config/config.hpp"
 
 #ifdef MFEM_USE_OMEGAH
-#ifdef MFEM_USE_MPI
 
 #include "../fem/fespace.hpp"
 #include "../fem/gridfunc.hpp"
@@ -44,26 +43,25 @@ namespace mfem
 /// Base class for PUMI meshes
 class OmegaMesh : public Mesh
 {
+/*
 protected:
-   void CountBoundaryEntity(Omega_h::Mesh* o_mesh, const int BcDim, int &NumBC);
+  void CountBoundaryEntity (Omega_h::Mesh* o_mesh, const int BcDim, int &NumBC);
 
-   // Readers for PUMI mesh formats, used in the Load() method.
-   void ReadOmegaMesh(Omega_h::Mesh* o_mesh, Omega_h::LOs v_num_loc,
+  // Readers for PUMI mesh formats, used in the Load() method.
+  void ReadOmegaMesh (Omega_h::Mesh* o_mesh, Omega_h::LOs v_num_loc,
                       const int curved = 0);
 
-   void OhLoad(Omega_h::Mesh* o_mesh, int generate_edges, int refine,
-                    bool fix_orientation);
-
+  void OhLoad (Omega_h::Mesh* o_mesh, int generate_edges, int refine,
+               bool fix_orientation);
+*/
 public:
-   OmegaMesh(Omega_h::Mesh* o_mesh,
-     int generate_edges, int refine,
-     bool fix_orientation);
+  OmegaMesh(Omega_h::Mesh* o_mesh, int generate_edges, int refine,
+            bool fix_orientation);
 };
 
 
 } // namespace mfem
 
-#endif // MFEM_USE_MPI
 #endif // MFEM_USE_OMEGAH
 
 #endif

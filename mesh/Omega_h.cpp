@@ -10,9 +10,7 @@
 // CONTRIBUTING.md for details.
 
 #include "Omega_h.hpp"
-
 #ifdef MFEM_USE_OMEGAH
-#ifdef MFEM_USE_MPI
 
 #include "mesh_headers.hpp"
 
@@ -29,9 +27,10 @@
 #include <cstring>
 #include <ctime>
 
-#include <Omega_h_for.hpp>
-#include <Omega_h_element.hpp>
-#include <Omega_h_mark.hpp>
+#include "Omega_h_for.hpp"
+#include "Omega_h_element.hpp"
+#include "Omega_h_mark.hpp"
+#include "Omega_h_atomics.hpp"
 
 namespace oh = Omega_h;
 
@@ -39,7 +38,6 @@ namespace mfem {
 
 OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
                    bool fix_orientation) {
-  printf("ok constructor\n");
   // things needed from omegaH mesh //
   int Dim = o_mesh->oh::Mesh::dim();
   auto coords = o_mesh->oh::Mesh::coords();
@@ -49,11 +47,11 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
   auto elem2vert_degree = oh::element_degree(OMEGA_H_SIMPLEX,
     Dim, oh::VERT);
   // to get the boundary and boundary elements, we will need to bring in the
-  // ids of geom ents? or i think ther is an api which will give me the
+  // ids of geom ents? or i think there is an api which will give me the
   // classified elems.
   // can look at mark exposed sides and mark by exposure
   
-  oh::Write<oh::LO> NumOfBdrElements = 0;
+  oh::Write<oh::LO> NumOfBdrElements(1, 0, "NumOfBdrElements");
 
   auto exposed_sides = mark_exposed_sides (o_mesh);
   auto ns = o_mesh->nents (Dim - 1); // num. of sides
@@ -61,7 +59,9 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
   auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
   auto f = OMEGA_H_LAMBDA (oh::LO s) {
     if ((s2sc[s + 1] - s2sc[s]) < 2) {
-      NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
+      atomic_increment(&NumOfBdrElements[0]);
+      //NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
+      //TODO this is a race condition. use atomics here
     }
   };
   oh::parallel_for(ns, f, "count_bdrElems");
@@ -71,7 +71,8 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
   oh::Write<oh::LO> iter_bdrElems = 0;
   auto get_bdrElemId = OMEGA_H_LAMBDA (oh::LO s) {
     if ((s2sc[s + 1] - s2sc[s]) < 2) {
-      ++iter_bdrElems[0];
+      atomic_increment(&iter_bdrElems[0]);
+      //++iter_bdrElems[0];
       boundary[iter_bdrElems[0]] = sc2c[s2sc[s]];// get the id of the side's
       // adjacent cell
     }
@@ -111,13 +112,15 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
   printf("end constructor\n");
 }
 
+/*
 void OmegaMesh::CountBoundaryEntity(oh::Mesh* o_mesh, const int BcDim,
                                    int &NumBc) {
 }
-
+*/
+/*
 void OmegaMesh::ReadOmegaMesh(oh::Mesh* o_mesh, oh::LOs v_num_loc,
                               const int curved) {
-//***Question: the mfem mesh contents are getting allocated and set on host,
+//Question: the mfem mesh contents are getting allocated and set on host,
 //will it be feasible to set this in device memory//
    // Here fill the element table from SCOREC MESH
    // The vector of element pointers is generated with attr and connectivity
@@ -130,7 +133,8 @@ void OmegaMesh::ReadOmegaMesh(oh::Mesh* o_mesh, oh::LOs v_num_loc,
    auto verts = o_mesh->ask_down(o_mesh->dim(), 0);
 
 }
-
+*/
+/*
 void OmegaMesh::OhLoad(oh::Mesh* o_mesh, int generate_edges, int refine,
                     bool fix_orientation) {
    int  curved = 0, read_gf = 1;
@@ -138,13 +142,13 @@ void OmegaMesh::OhLoad(oh::Mesh* o_mesh, int generate_edges, int refine,
    // Add a check on o_mesh just in case
    Clear();
 
-  /*
+  
    // First number vertices
-   apf::Field* apf_field_crd = o_mesh->getCoordinateField();
-   apf::FieldShape* crd_shape = apf::getShape(apf_field_crd);
-   apf::Numbering* v_num_loc = apf::createNumbering(o_mesh, "VertexNumbering",
+   //apf::Field* apf_field_crd = o_mesh->getCoordinateField();
+   //apf::FieldShape* crd_shape = apf::getShape(apf_field_crd);
+   //apf::Numbering* v_num_loc = apf::createNumbering(o_mesh, "VertexNumbering",
                                                 crd_shape, 1);
-  */
+  
    auto v_num_loc = oh::Write<oh::LO>(o_mesh->nverts(), 0, 1);
    auto crd = o_mesh->coords();
 
@@ -173,8 +177,7 @@ void OmegaMesh::OhLoad(oh::Mesh* o_mesh, int generate_edges, int refine,
 
    Finalize(refine, fix_orientation);
 }
-
+*/
 } //end namespace mfem
 
-#endif // MFEM_USE_MPI
 #endif // MFEM_USE_OMEGAH
