@@ -34,6 +34,27 @@
 
 namespace oh = Omega_h;
 
+namespace {
+  int countBdryElems(oh::Mesh* o_mesh) {
+    const auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+    const int Dim = o_mesh->oh::Mesh::dim();
+    const auto ns = o_mesh->nents (Dim - 1); // num. of sides
+    const auto s2sc = o_mesh->ask_up (Dim - 1, Dim).a2ab;
+    const auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
+    oh::Write<oh::LO> NumOfBdrElements(1, 0, "NumOfBdrElements");
+    auto f = OMEGA_H_LAMBDA (oh::LO s) {
+      if ((s2sc[s + 1] - s2sc[s]) < 2) {
+        oh::atomic_increment(&NumOfBdrElements[0]);
+        //NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
+        //TODO this is a race condition. use atomics here
+      }
+    };
+    oh::parallel_for(ns, f, "count_bdrElems");
+    oh::HostRead<oh::LO> nbe(NumOfBdrElements);
+    return nbe[0]; 
+  }
+}
+
 namespace mfem {
 
 OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
@@ -51,33 +72,22 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
   // classified elems.
   // can look at mark exposed sides and mark by exposure
   
-  oh::Write<oh::LO> NumOfBdrElements(1, 0, "NumOfBdrElements");
-
-  auto exposed_sides = mark_exposed_sides (o_mesh);
-  auto ns = o_mesh->nents (Dim - 1); // num. of sides
-  auto s2sc = o_mesh->ask_up (Dim - 1, Dim).a2ab;
-  auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
-  auto f = OMEGA_H_LAMBDA (oh::LO s) {
-    if ((s2sc[s + 1] - s2sc[s]) < 2) {
-      atomic_increment(&NumOfBdrElements[0]);
-      //NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
-      //TODO this is a race condition. use atomics here
-    }
-  };
-  oh::parallel_for(ns, f, "count_bdrElems");
+  const int NumOfBdrElements = countBdryElems(o_mesh);
   oh::Write<oh::LO> boundary(NumOfBdrElements);// note the mfem boundary array is of
   // type Arrary<Element *>, so this boundary will need to be type cast
   // now get IDs of boundary elements
   oh::Write<oh::LO> iter_bdrElems = 0;
-  auto get_bdrElemId = OMEGA_H_LAMBDA (oh::LO s) {
-    if ((s2sc[s + 1] - s2sc[s]) < 2) {
-      atomic_increment(&iter_bdrElems[0]);
-      //++iter_bdrElems[0];
-      boundary[iter_bdrElems[0]] = sc2c[s2sc[s]];// get the id of the side's
-      // adjacent cell
-    }
-  };
-  oh::parallel_for(ns, get_bdrElemId, "get_bdrElemId");
+
+//  auto get_bdrElemId = OMEGA_H_LAMBDA (oh::LO s) {
+//    if ((s2sc[s + 1] - s2sc[s]) < 2) {
+//      atomic_increment(&iter_bdrElems[0]);
+//      //++iter_bdrElems[0];
+//      boundary[iter_bdrElems[0]] = sc2c[s2sc[s]];// get the id of the side's
+//      // adjacent cell
+//    }
+//  };
+// oh::parallel_for(ns, get_bdrElemId, "get_bdrElemId");
+
   // after this get the verts of each doundary element using the ask_down
   // note that following the readPumiElement, 
   auto NumOfBdrElements_h = oh::HostWrite<oh::LO>(NumOfBdrElements);
