@@ -42,16 +42,17 @@ int main(int argc, char *argv[])
 
   // example of copying data from omega to mfem device mem.
   auto coords = o_mesh.oh::Mesh::coords();
+  printf("from example nelems=%d\n", o_mesh.oh::Mesh::nelems());
   int coords_size = coords.size(); // Base vector size
   double *x = new double[coords_size]; // Allocate base vector data
   Vector V(x, coords_size);
   V.ReadWrite();
   double *coords_mfem = V.ReadWrite(); // Pointer to device memory
-  std::cout<<"Contents of V on the GPU"<<std::endl;
+  //std::cout<<"Contents of V on the GPU"<<std::endl;
 
   auto fill = OMEGA_H_LAMBDA (oh::LO i) {
     coords_mfem[i] = coords[i];
-    printf("%.1f coords=%.1f\n", coords_mfem[i], coords[i]);
+    //printf("%.1f coords=%.1f\n", coords_mfem[i], coords[i]);
   };
   oh::parallel_for(coords_size, fill);
   printf("\n");

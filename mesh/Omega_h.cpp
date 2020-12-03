@@ -34,78 +34,117 @@
 
 namespace oh = Omega_h;
 
-namespace {
-  int countBdryElems(oh::Mesh* o_mesh) {
-    const auto exposed_sides = oh::mark_exposed_sides (o_mesh);
-    const int Dim = o_mesh->oh::Mesh::dim();
-    const auto ns = o_mesh->nents (Dim - 1); // num. of sides
-    const auto s2sc = o_mesh->ask_up (Dim - 1, Dim).a2ab;
-    const auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
-    oh::Write<oh::LO> NumOfBdrElements(1, 0, "NumOfBdrElements");
-    auto f = OMEGA_H_LAMBDA (oh::LO s) {
-      if ((s2sc[s + 1] - s2sc[s]) < 2) {
-        oh::atomic_increment(&NumOfBdrElements[0]);
-        //NumOfBdrElements[0] = NumOfBdrElements[0] + 1;
-        //TODO this is a race condition. use atomics here
-      }
-    };
-    oh::parallel_for(ns, f, "count_bdrElems");
-    oh::HostRead<oh::LO> nbe(NumOfBdrElements);
-    return nbe[0]; 
-  }
+namespace { // anonymous namespace
+
+// TODO add unit tests for this function
+oh::Read<oh::LO> mark_exposedCells (oh::Mesh* o_mesh) {
+  const auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  const int Dim = o_mesh->oh::Mesh::dim();
+  const auto ns = o_mesh->nents (Dim - 1); // num. of sides
+  const auto s2sc = o_mesh->ask_up (Dim - 1, Dim).a2ab;
+  const auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
+  const auto nc = o_mesh->nents (Dim); // num. of cells
+  oh::Write<oh::LO> exposed_cells (nc, 0);
+  auto get_exposedCells = OMEGA_H_LAMBDA (oh::LO s) {
+    if (exposed_sides[s]) {
+      auto exposed_cell = sc2c[s2sc[s]];
+      exposed_cells[exposed_cell] = 1;
+    }
+  };
+  oh::parallel_for(ns, get_exposedCells);
+  return read (exposed_cells);
 }
+
+int count_exposedCells (oh::Read<oh::LO> exposed_cells) {
+  auto nc = exposed_cells.size();
+  oh::Write<oh::LO> NumOfBdrElements (1, 0);
+  auto get_numExposedCells = OMEGA_H_LAMBDA (oh::LO c) {
+    if (exposed_cells[c]) {
+      oh::atomic_increment(&NumOfBdrElements[0]);
+    }
+  };
+  oh::parallel_for(nc, get_numExposedCells);
+  oh::HostRead<oh::LO> nbe(NumOfBdrElements);
+  return nbe[0];
+}
+
+oh::Read<oh::LO> get_boundary (oh::Read<oh::LO> exposed_cells,
+  const int num_bdryElems) {
+  auto nc = exposed_cells.size();
+  oh::HostWrite<oh::LO> iter_exposedCells (1, 0, 0);
+  oh::HostRead<oh::LO> exposed_cells_h(exposed_cells);
+  oh::HostWrite<oh::LO> boundary_h(num_bdryElems, -1, 0);
+  for (oh::LO c = 0; c < nc; ++c) {
+    if (exposed_cells_h[c]) {
+      // this iterative transfer will have to be done through host
+      boundary_h[iter_exposedCells[0]] = c;
+      ++iter_exposedCells[0];
+    }
+  }
+  return read(boundary_h.write());
+}
+
+oh::Read<oh::LO> get_bdryElemVerts (oh::Mesh* o_mesh,
+  oh::Read<oh::LO> ev2v, oh::Read<oh::LO> bdryElems) {
+  const int Dim = o_mesh->oh::Mesh::dim();
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, Dim, oh::VERT);
+  oh::Write<oh::LO> bv2v (bdryElems.size()*e2v_degree);
+  auto get_bdrElemVerts = OMEGA_H_LAMBDA (oh::LO b) {
+    for (oh::LO v = 0; v < e2v_degree; ++v) {
+      bv2v[b*e2v_degree + v] = ev2v[bdryElems[b]*e2v_degree + v];
+      // get the id of the boundary element's adjacent verts
+    }
+  };
+  oh::parallel_for (bdryElems.size(), get_bdrElemVerts);
+  return read(bv2v);
+}
+
+} // end anonymous namespace
 
 namespace mfem {
 
-OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
-                   bool fix_orientation) {
-  // things needed from omegaH mesh //
-  int Dim = o_mesh->oh::Mesh::dim();
-  auto coords = o_mesh->oh::Mesh::coords();
-  const unsigned long int nverts = coords.size()/Dim;
+OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int generate_edges, int refine,
+                      bool fix_orientation) {
+  const int Dim = o_mesh->oh::Mesh::dim();
+  const unsigned long int nverts = o_mesh->oh::Mesh::nverts();
   const unsigned long int nelems = o_mesh->oh::Mesh::nelems();
-  auto elem2vert = o_mesh->oh::Mesh::ask_down(Dim, oh::VERT);
-  auto elem2vert_degree = oh::element_degree(OMEGA_H_SIMPLEX,
-    Dim, oh::VERT);
-  // to get the boundary and boundary elements, we will need to bring in the
-  // ids of geom ents? or i think there is an api which will give me the
-  // classified elems.
-  // can look at mark exposed sides and mark by exposure
+  auto ev2v = o_mesh->oh::Mesh::ask_down (Dim, oh::VERT).ab2b;
   
-  const int NumOfBdrElements = countBdryElems(o_mesh);
-  oh::Write<oh::LO> boundary(NumOfBdrElements);// note the mfem boundary array is of
-  // type Arrary<Element *>, so this boundary will need to be type cast
-  // now get IDs of boundary elements
-  oh::Write<oh::LO> iter_bdrElems = 0;
+  auto exposed_cells = mark_exposedCells(o_mesh);
 
-//  auto get_bdrElemId = OMEGA_H_LAMBDA (oh::LO s) {
-//    if ((s2sc[s + 1] - s2sc[s]) < 2) {
-//      atomic_increment(&iter_bdrElems[0]);
-//      //++iter_bdrElems[0];
-//      boundary[iter_bdrElems[0]] = sc2c[s2sc[s]];// get the id of the side's
-//      // adjacent cell
-//    }
-//  };
-// oh::parallel_for(ns, get_bdrElemId, "get_bdrElemId");
+  const int NumOfBdrElements = count_exposedCells(exposed_cells);
 
-  // after this get the verts of each doundary element using the ask_down
-  // note that following the readPumiElement, 
-  auto NumOfBdrElements_h = oh::HostWrite<oh::LO>(NumOfBdrElements);
-/*
-  int NumOfBdrElements_int = (NumOfBdrElements_h);
-  auto get_bdrElemVerts = OMEGA_H_LAMBDA (oh::LO i) {
-    boundary[i] = sc2c[s2sc[i]];// get the id of the side's
-  };
-  oh::parallel_for(NumOfBdrElements_h, get_bdrElemVerts, "get_bdrElemVerts");
-*/
+  auto boundary = get_boundary(exposed_cells, NumOfBdrElements);
+  // the mfem boundary array is of
+  // type Array<Element *>, so this boundary will need to be cast
+
+  auto bv2v = get_bdryElemVerts(o_mesh, ev2v, boundary);
+  // boundary elems to verts adjacency array
+
+  // check output
+  oh::HostRead<oh::LO> boundary_h(boundary);
+  oh::HostRead<oh::LO> bv2v_h(bv2v);
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, Dim, oh::VERT);
+  for (int b = 0; b < NumOfBdrElements; ++b) {
+    printf("\nbdry elem with ID=%d has verts with IDs", boundary_h[b]);
+    for (int v = 0; v < e2v_degree; ++v) {
+      printf(" %d ", bv2v_h[b*e2v_degree+v]);
+    }
+  }
+  // end output check
+
+  auto coords = o_mesh->oh::Mesh::coords();
+
+  // after this get the verts of each doundary element using ask_down
+  // note readPumiElement API
 
   // the logic to create elem in mfem
   // now the ReadPumiElement, i.e. read elem2verts for BdrElements
-  // note here an Element *el, which is ptr to mfem element will be created
+  // here an Element *el, which is ptr to mfem element will be created
   // and vertices will be assigned to it
-  //note here the elements to vert connectivity will have to be created/
-  elements.SetSize(NumOfElements);
-  elements[0] = NewElement(3); // ptr to mfem element // arg is dim of elem type
+  // here the elements to vert connectivity will have to be created/
+  elements.SetSize(nelems);
+  elements[0] = NewElement(Dim); // ptr to mfem element // arg is dim of elem type
   auto el = elements[0];
   int nv, *v;
   // Create element in MFEM
@@ -119,19 +158,12 @@ OmegaMesh::OmegaMesh(oh::Mesh* o_mesh, int generate_edges, int refine,
 */
   //v_num_loc is number of local vertices which apf creates. dont think its
   //needded from omegah mesh
-  printf("end constructor\n");
+  printf("\nend constructor\n");
 }
 
 /*
-void OmegaMesh::CountBoundaryEntity(oh::Mesh* o_mesh, const int BcDim,
-                                   int &NumBc) {
-}
-*/
-/*
-void OmegaMesh::ReadOmegaMesh(oh::Mesh* o_mesh, oh::LOs v_num_loc,
+void OmegaMesh::ReadOmegaMesh (oh::Mesh* o_mesh, oh::LOs v_num_loc,
                               const int curved) {
-//Question: the mfem mesh contents are getting allocated and set on host,
-//will it be feasible to set this in device memory//
    // Here fill the element table from SCOREC MESH
    // The vector of element pointers is generated with attr and connectivity
    NumOfVertices = o_mesh->nverts();
@@ -151,7 +183,6 @@ void OmegaMesh::OhLoad(oh::Mesh* o_mesh, int generate_edges, int refine,
 
    // Add a check on o_mesh just in case
    Clear();
-
   
    // First number vertices
    //apf::Field* apf_field_crd = o_mesh->getCoordinateField();
