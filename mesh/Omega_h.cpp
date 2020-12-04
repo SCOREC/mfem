@@ -36,14 +36,13 @@ namespace oh = Omega_h;
 
 namespace { // anonymous namespace
 
-// TODO add unit tests for this function
 oh::Read<oh::LO> mark_exposedCells (oh::Mesh* o_mesh) {
   const auto exposed_sides = oh::mark_exposed_sides (o_mesh);
-  const int Dim = o_mesh->oh::Mesh::dim();
-  const auto ns = o_mesh->nents (Dim - 1); // num. of sides
-  const auto s2sc = o_mesh->ask_up (Dim - 1, Dim).a2ab;
-  const auto sc2c = o_mesh->ask_up (Dim - 1, Dim).ab2b;
-  const auto nc = o_mesh->nents (Dim); // num. of cells
+  const int dim = o_mesh->oh::Mesh::dim();
+  const auto ns = o_mesh->nents (dim - 1); // num. of sides
+  const auto s2sc = o_mesh->ask_up (dim - 1, dim).a2ab;
+  const auto sc2c = o_mesh->ask_up (dim - 1, dim).ab2b;
+  const auto nc = o_mesh->nents (dim); // num. of cells
   oh::Write<oh::LO> exposed_cells (nc, 0);
   auto get_exposedCells = OMEGA_H_LAMBDA (oh::LO s) {
     if (exposed_sides[s]) {
@@ -57,14 +56,14 @@ oh::Read<oh::LO> mark_exposedCells (oh::Mesh* o_mesh) {
 
 int count_exposedCells (oh::Read<oh::LO> exposed_cells) {
   auto nc = exposed_cells.size();
-  oh::Write<oh::LO> NumOfBdrElements (1, 0);
+  oh::Write<oh::LO> nBdrElements (1, 0);
   auto get_numExposedCells = OMEGA_H_LAMBDA (oh::LO c) {
     if (exposed_cells[c]) {
-      oh::atomic_increment(&NumOfBdrElements[0]);
+      oh::atomic_increment(&nBdrElements[0]);
     }
   };
   oh::parallel_for(nc, get_numExposedCells);
-  oh::HostRead<oh::LO> nbe(NumOfBdrElements);
+  oh::HostRead<oh::LO> nbe(nBdrElements);
   return nbe[0];
 }
 
@@ -86,8 +85,8 @@ oh::Read<oh::LO> get_boundary (oh::Read<oh::LO> exposed_cells,
 
 oh::Read<oh::LO> get_bdryElemVerts (oh::Mesh* o_mesh,
   oh::Read<oh::LO> ev2v, oh::Read<oh::LO> bdryElems) {
-  const int Dim = o_mesh->oh::Mesh::dim();
-  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, Dim, oh::VERT);
+  const int dim = o_mesh->oh::Mesh::dim();
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
   oh::Write<oh::LO> bv2v (bdryElems.size()*e2v_degree);
   auto get_bdrElemVerts = OMEGA_H_LAMBDA (oh::LO b) {
     for (oh::LO v = 0; v < e2v_degree; ++v) {
@@ -105,27 +104,26 @@ namespace mfem {
 
 OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int generate_edges, int refine,
                       bool fix_orientation) {
-  const int Dim = o_mesh->oh::Mesh::dim();
-  const unsigned long int nverts = o_mesh->oh::Mesh::nverts();
-  const unsigned long int nelems = o_mesh->oh::Mesh::nelems();
-  auto ev2v = o_mesh->oh::Mesh::ask_down (Dim, oh::VERT).ab2b;
+  const int dim = o_mesh->oh::Mesh::dim();
+  const int nverts = o_mesh->oh::Mesh::nverts();
+  const int nelems = o_mesh->oh::Mesh::nelems();
+  auto ev2v = o_mesh->oh::Mesh::ask_down (dim, oh::VERT).ab2b;
   
   auto exposed_cells = mark_exposedCells(o_mesh);
 
-  const int NumOfBdrElements = count_exposedCells(exposed_cells);
+  const int nBdrElements = count_exposedCells(exposed_cells);
 
-  auto boundary = get_boundary(exposed_cells, NumOfBdrElements);
-  // the mfem boundary array is of
-  // type Array<Element *>, so this boundary will need to be cast
+  auto boundaryElems = get_boundary(exposed_cells, nBdrElements);
+  // boundary elemIDs
 
-  auto bv2v = get_bdryElemVerts(o_mesh, ev2v, boundary);
+  auto bv2v = get_bdryElemVerts(o_mesh, ev2v, boundaryElems);
   // boundary elems to verts adjacency array
 
   // check output
-  oh::HostRead<oh::LO> boundary_h(boundary);
+  oh::HostRead<oh::LO> boundary_h(boundaryElems);
   oh::HostRead<oh::LO> bv2v_h(bv2v);
-  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, Dim, oh::VERT);
-  for (int b = 0; b < NumOfBdrElements; ++b) {
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
+  for (int b = 0; b < nBdrElements; ++b) {
     printf("\nbdry elem with ID=%d has verts with IDs", boundary_h[b]);
     for (int v = 0; v < e2v_degree; ++v) {
       printf(" %d ", bv2v_h[b*e2v_degree+v]);
@@ -135,90 +133,96 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int generate_edges, int refine,
 
   auto coords = o_mesh->oh::Mesh::coords();
 
-  // after this get the verts of each doundary element using ask_down
-  // note readPumiElement API
-
+  // look at readPumiElement fn
   // the logic to create elem in mfem
   // now the ReadPumiElement, i.e. read elem2verts for BdrElements
   // here an Element *el, which is ptr to mfem element will be created
   // and vertices will be assigned to it
-  // here the elements to vert connectivity will have to be created/
-  elements.SetSize(nelems);
-  elements[0] = NewElement(Dim); // ptr to mfem element // arg is dim of elem type
-  auto el = elements[0];
-  int nv, *v;
-  // Create element in MFEM
-  nv = el->GetNVertices();
-  v  = el->GetVertices();
-/*
-  // Fill the connectivity
-  for (int i = 0; i < nv; ++i) {
-    v[i] = apf::getNumber(vert_num, Verts[i], 0, 0);
+  // here the elements to vert connectivity will be created in mfem
+
+  NumOfVertices = nverts;
+  NumOfElements = nelems;
+  // TODO after commenting L144, the runtime segfault is removed
+  Dim = dim;
+  //auto v_num_loc = oh::Write<oh::LO>(o_mesh->nverts(), 0, 1);
+  // int curved = 0, read_gf = 1;
+  int curved = 0;
+
+  printf("\nset elems =%d\n", nelems);
+  elements.SetSize(NumOfElements);
+  // iterate over all o_mesh::elems and create mfem elements
+  oh::HostRead<oh::LO> ev2v_h(ev2v);
+
+  for (int elem = 0; elem < nelems; ++elem) {
+  //auto create_mfemElems = OMEGA_H_LAMBDA (oh::LO elem) {
+    elements[elem] = NewElement(dim); 
+    // ptr to mfem element // arg in the pumi constructor is geom type
+    auto el = elements[elem];
+    // fill in info about element
+    int nv, *v;
+    // Create element in MFEM
+    nv = el->GetNVertices(); // these are host functions
+    v  = el->GetVertices(); // these are host functions
+
+    // Fill the connectivity
+    for (int i = 0; i < nv; ++i) {
+      v[i] = ev2v_h[elem*e2v_degree + i];
+      // note for parallel the vertex IDs should be global
+    }
   }
-*/
-  //v_num_loc is number of local vertices which apf creates. dont think its
-  //needded from omegah mesh
-  printf("\nend constructor\n");
+  //}; // end parallel_for
+  //oh::parallel_for(nelems, create_mfemElems);
+  // end iteration
+  printf("after create elems\n");
+
+  int BcDim = Dim - 1;
+  NumOfBdrElements = nBdrElements;
+  boundary.SetSize(NumOfBdrElements);
+  // the mfem boundary array is of
+  // type Array<Element *>, so this boundary will need to be cast
+  //TODO iterate over all elems and repeat this process
+  for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
+    boundary[bdry] = NewElement(dim);
+    // ptr to mfem element // arg in the pumi constructor is geom type
+    auto el = boundary[bdry];
+    // fill in info about element
+    int nv, *v;
+    // Create element in MFEM
+    nv = el->GetNVertices(); // these are host functions
+    v  = el->GetVertices(); // these are host functions
+
+    // Fill the connectivity
+    for (int i = 0; i < nv; ++i) {
+      v[i] = bv2v_h[bdry*e2v_degree + i];
+      // note for parallel the vertex IDs should be global
+    }
+  }
+
+  printf("after create bdry\n");
+
+  // Fill vertices
+  oh::HostRead<oh::Real> coords_h(coords);
+  vertices.SetSize(NumOfVertices);
+  if (!curved) {
+    spaceDim = Dim;
+    // iterate over all vertices
+    for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
+      // Fill the coords
+      for (int d = 0; d < spaceDim; ++d) {
+        vertices[vtx](d) = coords_h[vtx*spaceDim + d];
+      }
+    }
+  }
+
+  FinalizeTopology();
+  Finalize(refine, fix_orientation);
+  // - assume that generate_edges is true
+  // - assume that refine is false
+  // - does not check the orientation of regular and boundary elements
+  printf ("\nend constructor\n");
 }
 
-/*
-void OmegaMesh::ReadOmegaMesh (oh::Mesh* o_mesh, oh::LOs v_num_loc,
-                              const int curved) {
-   // Here fill the element table from SCOREC MESH
-   // The vector of element pointers is generated with attr and connectivity
-   NumOfVertices = o_mesh->nverts();
-  
-   Dim = o_mesh->dim();
-   NumOfElements = o_mesh->nelems();
-   elements.SetSize(NumOfElements);
-
-   auto verts = o_mesh->ask_down(o_mesh->dim(), 0);
-
-}
-*/
-/*
-void OmegaMesh::OhLoad(oh::Mesh* o_mesh, int generate_edges, int refine,
-                    bool fix_orientation) {
-   int  curved = 0, read_gf = 1;
-
-   // Add a check on o_mesh just in case
-   Clear();
-  
-   // First number vertices
-   //apf::Field* apf_field_crd = o_mesh->getCoordinateField();
-   //apf::FieldShape* crd_shape = apf::getShape(apf_field_crd);
-   //apf::Numbering* v_num_loc = apf::createNumbering(o_mesh, "VertexNumbering",
-                                                crd_shape, 1);
-  
-   auto v_num_loc = oh::Write<oh::LO>(o_mesh->nverts(), 0, 1);
-   auto crd = o_mesh->coords();
-
-   // Read mesh
-   ReadOmegaMesh(o_mesh, v_num_loc, curved);
-#ifdef MFEM_DEBUG
-   mfem::out << "After ReadOmegaMesh" << std::endl;
-#endif
-   // at this point the following should be defined:
-   //  1) Dim
-   //  2) NumOfElements, elements
-   //  3) NumOfBdrElements, boundary
-   //  4) NumOfVertices, with allocated space in vertices
-   //  5) curved
-   //  5a) if curved == 0, vertices must be defined
-   //  5b) if curved != 0 and read_gf != 0,
-   //         'input' must point to a GridFunction
-   //  5c) if curved != 0 and read_gf == 0,
-   //         vertices and Nodes must be defined
-
-   // FinalizeTopology() will:
-   // - assume that generate_edges is true
-   // - assume that refine is false
-   // - does not check the orientation of regular and boundary elements
-   FinalizeTopology();
-
-   Finalize(refine, fix_orientation);
-}
-*/
 } //end namespace mfem
+// TODO add unit tests for this function & regression test
 
 #endif // MFEM_USE_OMEGAH
