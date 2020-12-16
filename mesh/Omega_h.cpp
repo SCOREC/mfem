@@ -134,15 +134,11 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int generate_edges, int refine,
   auto coords = o_mesh->oh::Mesh::coords();
 
   // look at readPumiElement fn
-  // the logic to create elem in mfem
-  // now the ReadPumiElement, i.e. read elem2verts for BdrElements
   // here an Element *el, which is ptr to mfem element will be created
   // and vertices will be assigned to it
-  // here the elements to vert connectivity will be created in mfem
 
   NumOfVertices = nverts;
   NumOfElements = nelems;
-  // TODO after commenting L144, the runtime segfault is removed
   Dim = dim;
   //auto v_num_loc = oh::Write<oh::LO>(o_mesh->nverts(), 0, 1);
   // int curved = 0, read_gf = 1;
@@ -180,7 +176,6 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int generate_edges, int refine,
   boundary.SetSize(NumOfBdrElements);
   // the mfem boundary array is of
   // type Array<Element *>, so this boundary will need to be cast
-  //TODO iterate over all elems and repeat this process
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(dim);
     // ptr to mfem element // arg in the pumi constructor is geom type
