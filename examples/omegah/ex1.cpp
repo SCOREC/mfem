@@ -58,9 +58,10 @@ void test_2d_mesh(oh::Library *lib) {
   auto o_mesh = oh::build_box (lib->world(), OMEGA_H_SIMPLEX,
                                    o_high[0], o_high[1], o_high[2], 2, 2, 0);
   oh::vtk::write_parallel ("box_2d", &o_mesh);
+  oh::binary::write ("o_box_2d.osh", &o_mesh);
 
   // call omegaH to mfem constructor
-  Mesh *mesh = new OmegaMesh (&o_mesh, 1, 0, false, 0);
+  Mesh *mesh = new OmegaMesh (&o_mesh);
 
   check_ents (&o_mesh, mesh);
   Vector low, high;
@@ -84,9 +85,10 @@ void test_3d_mesh(oh::Library *lib) {
   auto o_mesh = oh::build_box (lib->world(), OMEGA_H_SIMPLEX,
                                o_high[0], o_high[1], o_high[2], 2, 2, 2);
   oh::vtk::write_parallel ("box_3d", &o_mesh);
+  oh::binary::write ("o_box_3d.osh", &o_mesh);
 
   // call omegaH to mfem constructor
-  Mesh *mesh = new OmegaMesh (&o_mesh, 1, 0, false, 0);
+  Mesh *mesh = new OmegaMesh (&o_mesh);
 
   check_ents (&o_mesh, mesh);
   Vector low, high;
@@ -104,10 +106,6 @@ void test_3d_mesh(oh::Library *lib) {
 
 int main(int argc, char *argv[])
 {
-/*
-  Device device("cuda");
-  const MemoryType d_mt = device.GetMemoryType();
-*/
   auto lib = oh::Library();
 
   // test for 2d and 3d simplex mesh

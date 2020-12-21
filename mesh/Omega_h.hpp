@@ -40,12 +40,23 @@
 namespace mfem
 {
 
-/// Base class for PUMI meshes
+/// Base class for Omega_h meshes
 class OmegaMesh : public Mesh
 {
 public:
-  OmegaMesh(Omega_h::Mesh* o_mesh, int generate_edges, int refine,
-            bool fix_orientation, const int curved = 0);
+  OmegaMesh(Omega_h::Mesh* o_mesh, int refine = 0,
+            bool fix_orientation = true, const int curved = 0);
+};
+
+/// Class for parallel Omega_h meshes
+class ParOmegaMesh : public ParMesh
+{
+public:
+  // ParOmegaMesh implementation
+  // This function loads a parallel Omega_h mesh and returns the parallel MFEM mesh
+  // corresponding to it.
+  ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, int refine = 0,
+            bool fix_orientation = true, const int curved = 0);
 };
 
 

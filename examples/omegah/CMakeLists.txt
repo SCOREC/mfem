@@ -14,7 +14,8 @@ set(OMEGAH_EXAMPLES_SRCS)
 if (MFEM_USE_MPI)
   list(APPEND OMEGAH_EXAMPLES_SRCS
     ex1.cpp
-    )
+    ex1p.cpp
+  )
 endif()
 
 # Include the source directory where mfem.hpp and mfem-performance.hpp are.
@@ -40,6 +41,7 @@ add_mfem_examples(OMEGAH_EXAMPLES_SRCS ${PFX} "" test_omegah)
 # Set the number of processors for the parallel examples. The value of
 # MFEM_MPI_NP is ignored.
 set(EX1_TEST_NP 1)
+set(EX1P_TEST_NP 2)
 
 # Add the tests: one test per source file.
 foreach(SRC_FILE ${OMEGAH_EXAMPLES_SRCS})
