@@ -106,6 +106,106 @@ int get_type (int dim) {
   return dim_type;
 }
 
+static void get_shared_ranks(Mesh* mesh_osh, Int ent_dim,
+    std::map<std::int32_t, std::set<unsigned int>>* shared_ents) {
+  auto n = mesh_osh->nents(ent_dim);
+  if (!mesh_osh->could_be_shared(ent_dim)) {
+    return;
+  }
+  auto dist = mesh_osh->ask_dist(ent_dim).invert();
+  auto d_owners2copies = dist.roots2items();
+  auto d_copies2rank = dist.items2ranks();
+  auto d_copies2indices = dist.items2dest_idxs();
+  auto h_owners2copies = HostRead<LO>(d_owners2copies);
+  auto h_copies2rank = HostRead<I32>(d_copies2rank);
+  auto h_copies2indices = HostRead<LO>(d_copies2indices);
+  std::vector<I32> full_src_ranks;
+  std::vector<I32> full_dest_ranks;
+  std::vector<LO> full_dest_indices;
+  auto my_rank = mesh_osh->comm()->rank();
+  for (LO i_osh = 0; i_osh < n; ++i_osh) {
+    auto begin = h_owners2copies[i_osh];
+    auto end = h_owners2copies[i_osh + 1];
+    if (end - begin <= 1) continue;
+    for (LO copy = begin; copy < end; ++copy) {
+      auto dest_rank = h_copies2rank[copy];
+      auto dest_index = h_copies2indices[copy];
+      for (LO copy2 = begin; copy2 < end; ++copy2) {
+        auto src_rank = h_copies2rank[copy2];
+        full_src_ranks.push_back(src_rank);
+        full_dest_ranks.push_back(dest_rank);
+        full_dest_indices.push_back(dest_index);
+      }
+    }
+  }
+  auto h_full_src_ranks = HostWrite<I32>(LO(full_src_ranks.size()));
+  auto h_full_dest_ranks = HostWrite<I32>(LO(full_src_ranks.size()));
+  auto h_full_dest_indices = HostWrite<I32>(LO(full_dest_indices.size()));
+  for (LO i = 0; i < h_full_src_ranks.size(); ++i) {
+    h_full_src_ranks[i] = full_src_ranks[size_t(i)];
+    h_full_dest_ranks[i] = full_dest_ranks[size_t(i)];
+    h_full_dest_indices[i] = full_dest_indices[size_t(i)];
+  }
+  auto d_full_src_ranks = Read<I32>(h_full_src_ranks.write());
+  auto d_full_dest_ranks = Read<I32>(h_full_dest_ranks.write());
+  auto d_full_dest_indices = Read<I32>(h_full_dest_indices.write());
+  auto dist2 = Dist();
+  dist2.set_parent_comm(mesh_osh->comm());
+  dist2.set_dest_ranks(d_full_dest_ranks);
+  dist2.set_dest_idxs(d_full_dest_indices, n);
+  auto d_exchd_full_src_ranks = dist2.exch(d_full_src_ranks, 1);
+  auto d_shared2ranks = dist2.invert().roots2items();
+  auto h_exchd_full_src_ranks = HostRead<I32>(d_exchd_full_src_ranks);
+  auto h_shared2ranks = HostRead<LO>(d_shared2ranks);
+/*
+  auto ents_are_shared_w = HostWrite<Byte>(n);
+this is not used
+  for (LO i_osh = 0; i_osh < n; ++i_osh) {
+    auto begin = h_shared2ranks[i_osh];
+    auto end = h_shared2ranks[i_osh + 1];
+    ents_are_shared_w[i_osh] = ((end - begin) > 0);
+  }
+*/
+  for (LO i_osh = 0; i_osh < n; ++i_osh) {
+    auto begin = h_shared2ranks[i_osh];
+    auto end = h_shared2ranks[i_osh + 1];
+    for (auto j = begin; j < end; ++j) {
+      auto rank = h_exchd_full_src_ranks[j];
+      //if (rank != my_rank) {
+      // include self
+      (*shared_ents)[i_osh].insert(unsigned(rank));
+      //}
+    }
+  }
+}
+
+oh::HostRead<oh::I8> mark_shared_ents (oh::Mesh* o_mesh, int dim, int rank) {
+  OMEGA_H_CHECK(o_mesh->could_be_shared(dim));
+  auto owners_r = o_mesh->ask_owners(dim).ranks;
+  auto owners_i = o_mesh->ask_owners(dim).idxs;
+  auto nents = o_mesh->nents(dim);
+  oh::Write<oh::I8> ent_is_shared(nents, -1, 0);
+  //TODO can change this to byte
+
+  auto dist = o_mesh->ask_dist(dim).invert();
+  auto d_owners2copies = dist.roots2items();
+
+  auto check_owner = OMEGA_H_LAMBDA (oh::LO ent) {
+    if (owners_r[ent] != rank) {
+      // ent is a copy
+      ent_is_shared[ent] = 1;
+    }
+    else if ((d_owners2copies[ent+1] - d_owners2copies[ent]) > 1) {
+      // ent is a owner
+      ent_is_shared[ent] = 1;
+    }
+  };
+  oh::parallel_for(nents, check_owner, "check_owner");
+  oh::HostRead<oh::I8> ent_is_shared_h(ent_is_shared);
+
+  return ent_is_shared_h;
+}
+
 } // end anonymous namespace
 
 namespace mfem {
@@ -187,51 +287,7 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
 }
 
 ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
-                            bool fix_orientation, const int curved)
-{
-   // Set the communicator for gtopo
-   // Global numbering of vertices. This is necessary to build a local numbering
-   // that has the same ordering in each process.
-   // Take this process global vertex IDs and sort
-   // Create local numbering that respects the global ordering
-   // Construct the numbering v_num_loc and set the coordinates of the vertices.
-   // Fill the elements
-   // Read elements from SCOREC Mesh
-   // Count number of boundaries by classification
-   // Read boundary from SCOREC mesh
-   // The next two methods are called by FinalizeTopology() called below:
-   // The first group is the local one
-   // Determine shared faces
-   // Initially sfaces[i].one holds the global face id.
-   // Then it is replaced by the group id of the shared face.
-      // Number the faces globally and enumerate the local shared faces
-      // following the global enumeration. This way we ensure that the ordering
-      // of the shared faces within each group (of processors) is the same in
-      // each processor in the group.
-      // Replace the global face id in sfaces[i].one with group id.
-   // Determine shared edges
-   // Initially sedges[i].one holds the global edge id.
-   // Then it is replaced by the group id of the shared edge.
-      // Number the edges globally and enumerate the local shared edges
-      // following the global enumeration. This way we ensure that the ordering
-      // of the shared edges within each group (of processors) is the same in
-      // each processor in the group.
-      // Replace the global edge id in sedges[i].one with group id.
-   // Determine shared vertices
-   // The entries sverts[i].one hold the local vertex ids.
-      // Determine svert_group
-         // Get the IDs
-   // Build group_stria and group_squad.
-   // Also allocate shared_trias, shared_quads, and sface_lface.
-   // Build group_sedge
-   // Build group_svert
-   // Build shared_trias and shared_quads. They are allocated above.
-   // Build shared_edges and allocate sedge_ledge
-   // Build svert_lvert
-   // Build the group communication topology
-   // Determine sedge_ledge and sface_lface
-   // Set nodes for higher order mesh
-
+                            bool fix_orientation, const int curved) {
   // Set the communicator for gtopo
   gtopo.SetComm(comm);
 
@@ -262,7 +318,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   }
 
   // Set the coordinates of the vertices.
-  /*v_num_loc is pumi specific variable, not needed here*/
   NumOfVertices = thisVertIds.Size();
   vertices.SetSize(NumOfVertices);
   auto coords = o_mesh->coords();
@@ -336,54 +391,210 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
              "[proc " << MyRank << "]: invalid state");
 
   // Determine shared faces
-  //Array<Pair<long, apf::MeshEntity*>> sfaces;
+  Array<Pair<long, int>> sfaces;
   // Initially sfaces[i].one holds the global face id.
   // Then it is replaced by the group id of the shared face.
-  if (Dim > 2)
-  {
+  // Initially sfaces[i].two holds the local face id.
+  if (Dim > 2) {
     // Number the faces globally and enumerate the local shared faces
     // following the global enumeration. This way we ensure that the ordering
     // of the shared faces within each group (of processors) is the same in
     // each processor in the group.
-    auto GlobalFaceNum = o_mesh->globals(oh::FACE);
+    //TODO verify this
+    oh::HostRead<oh::GO> GlobalFaceNum (o_mesh->globals(oh::FACE));
+    auto is_shared = mark_shared_ents(oh::FACE);
 
-/*
-      itr = apf_mesh->begin(2);
-      while ((ent = apf_mesh->iterate(itr)))
-      {
-         if (apf_mesh->isShared(ent))
-         {
-            long id = apf::getNumber(GlobalFaceNum, ent, 0, 0);
-            sfaces.Append(Pair<long,apf::MeshEntity*>(id, ent));
-         }
+    for (int ent = 0; ent < o_mesh->nfaces(); ++ent) {
+      if (is_shared[ent]) {
+        long id = GlobalFaceNum[ent];
+        sfaces.Append(Pair<long,int>(id, ent));
       }
-      apf_mesh->end(itr);
-      sfaces.Sort();
-      apf::destroyGlobalNumbering(GlobalFaceNum);
+    }
+    sfaces.Sort();
 
-      // Replace the global face id in sfaces[i].one with group id.
-      for (int i = 0; i < sfaces.Size(); i++)
-      {
-         ent = sfaces[i].two;
+    // create groups and replace the global face id in sfaces[i].one with group id
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_faces;
+    get_shared_ranks(o_mesh, oh::FACE, &shared_faces);
 
-         const int thisNumAdjs = 2;
-         int eleRanks[thisNumAdjs];
-
-         // Get the IDs
-         apf::Parts res;
-         apf_mesh->getResidence(ent, res);
-         int kk = 0;
-         for (std::set<int>::iterator itr = res.begin();
-              itr != res.end(); ++itr)
-         {
-            eleRanks[kk++] = *itr;
-         }
-
-         group.Recreate(2, eleRanks);
-         sfaces[i].one = groups.Insert(group) - 1;
+    for (int i = 0; i < sfaces.Size(); i++) {
+      ent = sfaces[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_faces[ent].size());
+      for (std::set<int>::iterator itr = shared_faces[ent].begin();
+           itr != shared_faces[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
       }
-*/
-   }
+      group.Recreate(eleRanks.Size(), eleRanks);
+      sfaces[i].one = groups.Insert(group) - 1;
+    }
+  } // end conditional for faces
+
+  // Determine shared edges
+  Array<Pair<long, int>> sedges;
+  // Initially sedges[i].one holds the global edge id.
+  // Then it is replaced by the group id of the shared edge.
+  if (Dim > 1) {
+    // Number the edges globally and enumerate the local shared edges
+    // following the global enumeration. This way we ensure that the ordering
+    // of the shared edges within each group (of processors) is the same in
+    // each processor in the group.
+    //TODO verify this
+    oh::HostRead<oh::GO> GlobalEdgeNum (o_mesh->globals(oh::EDGE));
+    auto is_shared = mark_shared_ents(oh::EDGE);
+
+    for (int ent = 0; ent < o_mesh->nedges(); ++ent) {
+      if (is_shared[ent]) {
+        long id = GlobalEdgeNum[ent];
+        sedges.Append(Pair<long,int>(id, ent));
+      }
+    }
+    sedges.Sort();
+
+    // create groups and replace the global id in sfaces[i].one with group id
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_edges;
+    get_shared_ranks(o_mesh, oh::EDGE, &shared_edges);
+
+    for (int i = 0; i < sedges.Size(); i++) {
+      ent = sedges[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_edges[ent].size());
+      for (std::set<int>::iterator itr = shared_edges[ent].begin();
+           itr != shared_edges[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
+      }
+      group.Recreate(eleRanks.Size(), eleRanks);
+      sedges[i].one = groups.Insert(group) - 1;
+    }
+  } // end conditional for edges
+
+  // Determine shared vertices
+  //Array<int> sverts;
+  Array<Pair<long, int>> sverts;
+  Array<int> svert_group;
+  {
+    //TODO verify this
+    // the pumi implm is using local vert ids to sort
+    // The entries sverts[i].one hold the local vertex ids.
+    oh::HostRead<oh::GO> GlobalVertNum (o_mesh->globals(oh::VERT));
+    auto is_shared = mark_shared_ents (oh::VERT);
+
+    for (int ent = 0; ent < o_mesh->nverts(); ++ent) {
+      if (is_shared[ent]) {
+        long id = GlobalVertNum[ent];
+        sverts.Append(Pair<long,int>(id, ent));
+      }
+    }
+    sverts.Sort();
+
+    // create groups and replace the global id in sfaces[i].one with group id
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_verts;
+    get_shared_ranks(o_mesh, oh::VERT, &shared_verts);
+
+    for (int i = 0; i < sverts.Size(); i++) {
+      ent = sverts[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_verts[ent].size());
+      for (std::set<int>::iterator itr = shared_verts[ent].begin();
+           itr != shared_verts[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
+      }
+      group.Recreate(eleRanks.Size(), eleRanks);
+      svert_group[i] = groups.Insert(group) - 1;
+    }
+  }
+
+  // Build group_stria and group_squad.
+  // Also allocate shared_trias, shared_quads, and sface_lface.
+  // TODO simplex mesh considered for now
+  group_stria.MakeI(groups.Size()-1);
+  group_squad.MakeI(groups.Size()-1);
+  for (int i = 0; i < sfaces.Size(); i++) {
+    group_stria.AddAColumnInRow(sfaces[i].one);
+  }
+  group_stria.MakeJ();
+  group_squad.MakeJ();
+  {
+    int nst = 0;
+    for (int i = 0; i < sfaces.Size(); i++) {
+      group_stria.AddConnection(sfaces[i].one, nst++);
+    }
+    shared_trias.SetSize(nst);
+    shared_quads.SetSize(sfaces.Size()-nst);
+    sface_lface.SetSize(sfaces.Size());
+  }
+  group_stria.ShiftUpI();
+  group_squad.ShiftUpI();
+
+  // Build group_sedge
+  group_sedge.MakeI(groups.Size()-1);
+  for (int i = 0; i < sedges.Size(); i++) {
+    group_sedge.AddAColumnInRow(sedges[i].one);
+  }
+  group_sedge.MakeJ();
+  for (int i = 0; i < sedges.Size(); i++) {
+    group_sedge.AddConnection(sedges[i].one, i);
+  }
+  group_sedge.ShiftUpI();
+
+  // Build group_svert
+  group_svert.MakeI(groups.Size()-1);
+  for (int i = 0; i < svert_group.Size(); i++) {
+    group_svert.AddAColumnInRow(svert_group[i]);
+  }
+  group_svert.MakeJ();
+  for (int i = 0; i < svert_group.Size(); i++) {
+    group_svert.AddConnection(svert_group[i], i);
+  }
+  group_svert.ShiftUpI();
+
+  // Build shared_trias and shared_quads. They are allocated above.
+  {
+    int nst = 0;
+    oh::HostRead<oh::LO> tri2vert_h (o_mesh->ask_down(2, 0).ab2b);
+    for (int i = 0; i < sfaces.Size(); i++) {
+      ent = sfaces[i].two;
+      int *v, nv = 0;
+      v = shared_trias[nst++].v;
+      nv = 3; //simplex
+      for (int j = 0; j < nv; ++j) {
+        v[j] = tri2vert_h[ent*nv + j];
+      }
+    }
+  }
+
+  // Build shared_edges and allocate sedge_ledge
+  shared_edges.SetSize(sedges.Size());
+  sedge_ledge. SetSize(sedges.Size());
+  oh::HostRead<oh::LO> edge2vert_h (o_mesh->ask_down(1, 0).ab2b);
+  for (int i = 0; i < sedges.Size(); i++) {
+    ent = sedges[i].two;
+    int id1, id2;
+    id1 = edge2vert_h[ent*2 + 0];
+    id2 = edge2vert_h[ent*2 + 1];
+    if (id1 > id2) { swap(id1,id2); }
+
+    shared_edges[i] = new Segment(id1, id2, 1);
+  }
+
+  // Build svert_lvert
+  svert_lvert.SetSize(sverts.Size());
+  for (int i = 0; i < sverts.Size(); i++) {
+    svert_lvert[i] = sverts[i].two; // local entity id of vert
+    //svert_lvert[i] = sverts[i].one;
+  }
+
+  // Build the group communication topology
+  gtopo.Create(groups, 822);
+
+  // Determine sedge_ledge and sface_lface
+  FinalizeParTopo();
+
+  // Set nodes for higher order mesh: linear mesh
+
+  Finalize(refine, fix_orientation);
 }
 
 } // end namespace mfem
