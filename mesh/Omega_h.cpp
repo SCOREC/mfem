@@ -106,31 +106,31 @@ int get_type (int dim) {
   return dim_type;
 }
 
-static void get_shared_ranks(Mesh* mesh_osh, Int ent_dim,
+static void get_shared_ranks(oh::Mesh* o_mesh, oh::Int ent_dim,
     std::map<std::int32_t, std::set<unsigned int>>* shared_ents) {
-  auto n = mesh_osh->nents(ent_dim);
-  if (!mesh_osh->could_be_shared(ent_dim)) {
+  auto n = o_mesh->nents(ent_dim);
+  if (!o_mesh->could_be_shared(ent_dim)) {
     return;
   }
-  auto dist = mesh_osh->ask_dist(ent_dim).invert();
+  auto dist = o_mesh->ask_dist(ent_dim).invert();
   auto d_owners2copies = dist.roots2items();
   auto d_copies2rank = dist.items2ranks();
   auto d_copies2indices = dist.items2dest_idxs();
-  auto h_owners2copies = HostRead<LO>(d_owners2copies);
-  auto h_copies2rank = HostRead<I32>(d_copies2rank);
-  auto h_copies2indices = HostRead<LO>(d_copies2indices);
-  std::vector<I32> full_src_ranks;
-  std::vector<I32> full_dest_ranks;
-  std::vector<LO> full_dest_indices;
-  auto my_rank = mesh_osh->comm()->rank();
-  for (LO i_osh = 0; i_osh < n; ++i_osh) {
+  auto h_owners2copies = oh::HostRead<oh::LO>(d_owners2copies);
+  auto h_copies2rank = oh::HostRead<oh::I32>(d_copies2rank);
+  auto h_copies2indices = oh::HostRead<oh::LO>(d_copies2indices);
+  std::vector<oh::I32> full_src_ranks;
+  std::vector<oh::I32> full_dest_ranks;
+  std::vector<oh::LO> full_dest_indices;
+  auto my_rank = o_mesh->comm()->rank();
+  for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
     auto begin = h_owners2copies[i_osh];
     auto end = h_owners2copies[i_osh + 1];
     if (end - begin <= 1) continue;
-    for (LO copy = begin; copy < end; ++copy) {
+    for (oh::LO copy = begin; copy < end; ++copy) {
       auto dest_rank = h_copies2rank[copy];
       auto dest_index = h_copies2indices[copy];
-      for (LO copy2 = begin; copy2 < end; ++copy2) {
+      for (oh::LO copy2 = begin; copy2 < end; ++copy2) {
         auto src_rank = h_copies2rank[copy2];
         full_src_ranks.push_back(src_rank);
         full_dest_ranks.push_back(dest_rank);
@@ -138,25 +138,25 @@ static void get_shared_ranks(Mesh* mesh_osh, Int ent_dim,
       }
     }
   }
-  auto h_full_src_ranks = HostWrite<I32>(LO(full_src_ranks.size()));
-  auto h_full_dest_ranks = HostWrite<I32>(LO(full_src_ranks.size()));
-  auto h_full_dest_indices = HostWrite<I32>(LO(full_dest_indices.size()));
-  for (LO i = 0; i < h_full_src_ranks.size(); ++i) {
+  auto h_full_src_ranks = oh::HostWrite<oh::I32>(oh::LO(full_src_ranks.size()));
+  auto h_full_dest_ranks = oh::HostWrite<oh::I32>(oh::LO(full_src_ranks.size()));
+  auto h_full_dest_indices = oh::HostWrite<oh::I32>(oh::LO(full_dest_indices.size()));
+  for (oh::LO i = 0; i < h_full_src_ranks.size(); ++i) {
     h_full_src_ranks[i] = full_src_ranks[size_t(i)];
     h_full_dest_ranks[i] = full_dest_ranks[size_t(i)];
     h_full_dest_indices[i] = full_dest_indices[size_t(i)];
   }
-  auto d_full_src_ranks = Read<I32>(h_full_src_ranks.write());
-  auto d_full_dest_ranks = Read<I32>(h_full_dest_ranks.write());
-  auto d_full_dest_indices = Read<I32>(h_full_dest_indices.write());
-  auto dist2 = Dist();
-  dist2.set_parent_comm(mesh_osh->comm());
+  auto d_full_src_ranks = oh::Read<oh::I32>(h_full_src_ranks.write());
+  auto d_full_dest_ranks = oh::Read<oh::I32>(h_full_dest_ranks.write());
+  auto d_full_dest_indices = oh::Read<oh::I32>(h_full_dest_indices.write());
+  auto dist2 = oh::Dist();
+  dist2.set_parent_comm(o_mesh->comm());
   dist2.set_dest_ranks(d_full_dest_ranks);
   dist2.set_dest_idxs(d_full_dest_indices, n);
   auto d_exchd_full_src_ranks = dist2.exch(d_full_src_ranks, 1);
   auto d_shared2ranks = dist2.invert().roots2items();
-  auto h_exchd_full_src_ranks = HostRead<I32>(d_exchd_full_src_ranks);
-  auto h_shared2ranks = HostRead<LO>(d_shared2ranks);
+  auto h_exchd_full_src_ranks = oh::HostRead<oh::I32>(d_exchd_full_src_ranks);
+  auto h_shared2ranks = oh::HostRead<oh::LO>(d_shared2ranks);
 /*
   auto ents_are_shared_w = HostWrite<Byte>(n);
 this is not used
@@ -166,7 +166,7 @@ this is not used
     ents_are_shared_w[i_osh] = ((end - begin) > 0);
   }
 */
-  for (LO i_osh = 0; i_osh < n; ++i_osh) {
+  for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
     auto begin = h_shared2ranks[i_osh];
     auto end = h_shared2ranks[i_osh + 1];
     for (auto j = begin; j < end; ++j) {
@@ -179,8 +179,9 @@ this is not used
   }
 }
 
-oh::HostRead<oh::I8> mark_shared_ents (oh::Mesh* o_mesh, int dim, int rank) {
+oh::HostRead<oh::I8> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
   OMEGA_H_CHECK(o_mesh->could_be_shared(dim));
+  auto rank = o_mesh->comm()->rank();
   auto owners_r = o_mesh->ask_owners(dim).ranks;
   auto owners_i = o_mesh->ask_owners(dim).idxs;
   auto nents = o_mesh->nents(dim);
@@ -402,7 +403,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     // each processor in the group.
     //TODO verify this
     oh::HostRead<oh::GO> GlobalFaceNum (o_mesh->globals(oh::FACE));
-    auto is_shared = mark_shared_ents(oh::FACE);
+    auto is_shared = mark_shared_ents(o_mesh, oh::FACE);
 
     for (int ent = 0; ent < o_mesh->nfaces(); ++ent) {
       if (is_shared[ent]) {
@@ -418,10 +419,10 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     get_shared_ranks(o_mesh, oh::FACE, &shared_faces);
 
     for (int i = 0; i < sfaces.Size(); i++) {
-      ent = sfaces[i].two;
+      int ent = sfaces[i].two;
       int kk = 0;
       eleRanks.SetSize(shared_faces[ent].size());
-      for (std::set<int>::iterator itr = shared_faces[ent].begin();
+      for (std::set<unsigned int>::iterator itr = shared_faces[ent].begin();
            itr != shared_faces[ent].end(); itr++) {
         eleRanks[kk++] = *itr;
       }
@@ -441,7 +442,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     // each processor in the group.
     //TODO verify this
     oh::HostRead<oh::GO> GlobalEdgeNum (o_mesh->globals(oh::EDGE));
-    auto is_shared = mark_shared_ents(oh::EDGE);
+    auto is_shared = mark_shared_ents(o_mesh, oh::EDGE);
 
     for (int ent = 0; ent < o_mesh->nedges(); ++ent) {
       if (is_shared[ent]) {
@@ -457,10 +458,10 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     get_shared_ranks(o_mesh, oh::EDGE, &shared_edges);
 
     for (int i = 0; i < sedges.Size(); i++) {
-      ent = sedges[i].two;
+      int ent = sedges[i].two;
       int kk = 0;
       eleRanks.SetSize(shared_edges[ent].size());
-      for (std::set<int>::iterator itr = shared_edges[ent].begin();
+      for (std::set<unsigned int>::iterator itr = shared_edges[ent].begin();
            itr != shared_edges[ent].end(); itr++) {
         eleRanks[kk++] = *itr;
       }
@@ -478,7 +479,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     // the pumi implm is using local vert ids to sort
     // The entries sverts[i].one hold the local vertex ids.
     oh::HostRead<oh::GO> GlobalVertNum (o_mesh->globals(oh::VERT));
-    auto is_shared = mark_shared_ents (oh::VERT);
+    auto is_shared = mark_shared_ents (o_mesh, oh::VERT);
 
     for (int ent = 0; ent < o_mesh->nverts(); ++ent) {
       if (is_shared[ent]) {
@@ -494,10 +495,10 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     get_shared_ranks(o_mesh, oh::VERT, &shared_verts);
 
     for (int i = 0; i < sverts.Size(); i++) {
-      ent = sverts[i].two;
+      int ent = sverts[i].two;
       int kk = 0;
       eleRanks.SetSize(shared_verts[ent].size());
-      for (std::set<int>::iterator itr = shared_verts[ent].begin();
+      for (std::set<unsigned int>::iterator itr = shared_verts[ent].begin();
            itr != shared_verts[ent].end(); itr++) {
         eleRanks[kk++] = *itr;
       }
@@ -555,7 +556,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     int nst = 0;
     oh::HostRead<oh::LO> tri2vert_h (o_mesh->ask_down(2, 0).ab2b);
     for (int i = 0; i < sfaces.Size(); i++) {
-      ent = sfaces[i].two;
+      int ent = sfaces[i].two;
       int *v, nv = 0;
       v = shared_trias[nst++].v;
       nv = 3; //simplex
@@ -570,11 +571,15 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   sedge_ledge. SetSize(sedges.Size());
   oh::HostRead<oh::LO> edge2vert_h (o_mesh->ask_down(1, 0).ab2b);
   for (int i = 0; i < sedges.Size(); i++) {
-    ent = sedges[i].two;
+    int ent = sedges[i].two;
     int id1, id2;
     id1 = edge2vert_h[ent*2 + 0];
     id2 = edge2vert_h[ent*2 + 1];
-    if (id1 > id2) { swap(id1,id2); }
+    if (id1 > id2) { 
+      auto temp = id1;
+      id1 = id2;
+      id2 = temp;
+    }
 
     shared_edges[i] = new Segment(id1, id2, 1);
   }
