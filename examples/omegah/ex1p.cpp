@@ -2,10 +2,10 @@
 //                              Example for testing Omega_h to MFEM mesh
 //                              constructor
 //
-// Compile with: make ex1
+// Compile with: make ex1p
 //
 // Sample runs:
-//    ex1
+//    ex1p
 //
 // Description:  see note
 
@@ -48,20 +48,22 @@ void check_ents (oh::Mesh *o_mesh, Mesh *mesh) {
 
 void test_2d_mesh(oh::Library *lib) {
   oh::Mesh o_mesh(lib);
-  oh::binary::read ("/users/joshia5/new_mesh/box_2d_16ele_2p.osh", lib->world(),
+  oh::binary::read ("/users/joshia5/new_mesh/box_2d_8ele_2p.osh", lib->world(),
                     &o_mesh);
 
   // call parallel omegaH to mfem constructor
   Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
+  auto rank = lib->world()->rank();
 
   check_ents (&o_mesh, mesh);
 
-/*
-  std::string mfem_mesh ("box_2d_mfem.vtk");
-  std::fstream vtkFs (mfem_mesh.c_str(), std::ios::out);
+  //std::string f_mfem_mesh;
+  char f_mfem_mesh [128];
+  sprintf(f_mfem_mesh, "box_2d_mfem_2p_%d.vtk", rank);
+  std::fstream vtkFs (f_mfem_mesh, std::ios::out);
   mesh->PrintVTK(vtkFs);
   return;
-*/
+
 }
 
 int main(int argc, char *argv[])
