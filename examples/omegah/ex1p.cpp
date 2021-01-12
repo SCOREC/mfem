@@ -51,19 +51,31 @@ void test_2d_mesh(oh::Library *lib) {
   oh::binary::read ("/users/joshia5/new_mesh/box_2d_8ele_2p.osh", lib->world(),
                     &o_mesh);
 
-  // call parallel omegaH to mfem constructor
   Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
   auto rank = lib->world()->rank();
 
   check_ents (&o_mesh, mesh);
-
-  //std::string f_mfem_mesh;
   char f_mfem_mesh [128];
   sprintf(f_mfem_mesh, "box_2d_mfem_2p_%d.vtk", rank);
   std::fstream vtkFs (f_mfem_mesh, std::ios::out);
   mesh->PrintVTK(vtkFs);
   return;
+}
 
+void test_3d_mesh(oh::Library *lib) {
+  oh::Mesh o_mesh(lib);
+  oh::binary::read ("/users/joshia5/new_mesh/box_3d_8ele_4p.osh", lib->world(),
+                    &o_mesh);
+
+  Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
+  auto rank = lib->world()->rank();
+
+  check_ents (&o_mesh, mesh);
+  char f_mfem_mesh [128];
+  sprintf(f_mfem_mesh, "box_2d_mfem_2p_%d.vtk", rank);
+  std::fstream vtkFs (f_mfem_mesh, std::ios::out);
+  mesh->PrintVTK(vtkFs);
+  return;
 }
 
 int main(int argc, char *argv[])
@@ -72,6 +84,7 @@ int main(int argc, char *argv[])
 
   // test for 2d and 3d simplex mesh
   test_2d_mesh (&lib);
+  test_3d_mesh (&lib);
 
   return EXIT_SUCCESS;
 }
