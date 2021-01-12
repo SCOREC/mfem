@@ -106,7 +106,7 @@ int get_type (int dim) {
   return dim_type;
 }
 
-/* based on a private fn form_sharing from ohdolfin.c */
+/* based on a private fn form_sharing from oh-dolfin.c */
 static void get_shared_ranks(oh::Mesh* o_mesh, oh::Int ent_dim,
     std::map<std::int32_t, std::set<unsigned int>>* shared_ents) {
   auto n = o_mesh->nents(ent_dim);
@@ -158,23 +158,13 @@ static void get_shared_ranks(oh::Mesh* o_mesh, oh::Int ent_dim,
   auto d_shared2ranks = dist2.invert().roots2items();
   auto h_exchd_full_src_ranks = oh::HostRead<oh::I32>(d_exchd_full_src_ranks);
   auto h_shared2ranks = oh::HostRead<oh::LO>(d_shared2ranks);
-/*
-  auto ents_are_shared_w = HostWrite<Byte>(n);
-  for (LO i_osh = 0; i_osh < n; ++i_osh) {
-    auto begin = h_shared2ranks[i_osh];
-    auto end = h_shared2ranks[i_osh + 1];
-    ents_are_shared_w[i_osh] = ((end - begin) > 0);
-  }
-*/
+
   for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
     auto begin = h_shared2ranks[i_osh];
     auto end = h_shared2ranks[i_osh + 1];
     for (auto j = begin; j < end; ++j) {
       auto rank = h_exchd_full_src_ranks[j];
-      //if (rank != my_rank) {
-      // include self
       (*shared_ents)[i_osh].insert(unsigned(rank));
-      //}
     }
   }
 }
@@ -192,23 +182,11 @@ oh::HostRead<oh::LO> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
 
   auto check_owner = OMEGA_H_LAMBDA (oh::LO ent) {
     if (owners_r[ent] != rank) {
-      // ent is a copy
       ent_is_shared[ent] = 1;
-      #ifdef DEBUG_MODE
-        fprintf(stderr, "ent %d of dim %d is a copy\n", ent, dim);
-      #endif
     }
     else if ((d_owners2copies[ent+1] - d_owners2copies[ent]) > 1) {
-      // ent is a owner
       ent_is_shared[ent] = 1;
-      #ifdef DEBUG_MODE
-        fprintf(stderr, "ent %d of dim %d is a owner\n", ent, dim);
-      #endif
     }
-    #ifdef DEBUG_MODE
-    if (ent_is_shared[ent] == 1)
-      fprintf(stderr, "ent %d of dim %d is shared\n", ent, dim);
-    #endif
   };
   oh::parallel_for(nents, check_owner, "check_owner");
   oh::HostRead<oh::LO> ent_is_shared_h(ent_is_shared);
@@ -308,8 +286,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   Dim = o_mesh->dim();
   spaceDim = Dim;
 
-  fprintf(stderr, "ok0\n");
-
   // Global numbering of vertices. This is necessary to build a local numbering
   // that has the same ordering in each process.
   auto vert_globals = o_mesh->globals(oh::VERT);
@@ -391,7 +367,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
 
   // The next two methods are called by FinalizeTopology() called below:
   this->FinalizeTopology();
-  fprintf(stderr, "ok1\n");
 
   ListOfIntegerSets  groups;
   IntegerSet         group;
@@ -408,13 +383,11 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   // Initially sfaces[i].one holds the global face id.
   // Then it is replaced by the group id of the shared face.
   // Initially sfaces[i].two holds the local face id.
-  fprintf(stderr, "ok2\n");
   if (Dim > 2) {
     // Number the faces globally and enumerate the local shared faces
     // following the global enumeration. This way we ensure that the ordering
     // of the shared faces within each group (of processors) is the same in
     // each processor in the group.
-    //TODO verify this
     oh::HostRead<oh::GO> GlobalFaceNum (o_mesh->globals(2));
     auto is_shared = mark_shared_ents(o_mesh, 2);
 
@@ -422,9 +395,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       if (is_shared[ent] == 1) {
         long id = GlobalFaceNum[ent];
         sfaces.Append(Pair<long,int>(id, ent));
-        #ifdef DEBUG_MODE
-          fprintf(stderr, "ent %d of dim %d is shared\n", ent, 2);
-        #endif
       }
     }
     sfaces.Sort();
@@ -446,7 +416,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       sfaces[i].one = groups.Insert(group) - 1;
     }
   } // end conditional for faces
-  fprintf(stderr, "ok3\n");
 
   int waiting = 0;
   while (waiting);
@@ -459,7 +428,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     // following the global enumeration. This way we ensure that the ordering
     // of the shared edges within each group (of processors) is the same in
     // each processor in the group.
-    //TODO verify this
     oh::HostRead<oh::GO> GlobalEdgeNum (o_mesh->globals(1));
     auto is_shared = mark_shared_ents(o_mesh, 1);
 
@@ -467,9 +435,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       if (is_shared[ent] == 1) {
         long id = GlobalEdgeNum[ent];
         sedges.Append(Pair<long,int>(id, ent));
-        #ifdef DEBUG_MODE
-          fprintf(stderr, "ent %d of dim %d is shared\n", ent, 1);
-        #endif
       }
     }
     sedges.Sort();
@@ -491,60 +456,41 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       sedges[i].one = groups.Insert(group) - 1;
     }
   } // end conditional for edges
-  fprintf(stderr, "ok4\n");
 
   // Determine shared vertices
-  //Array<int> sverts;
   Array<Pair<int, int>> sverts;
-  //Array<Pair<long, int>> sverts;
+  //TODO cleanup redundancy in sverts
   Array<int> svert_group;
   {
-    //TODO verify this
-    // the pumi implm is using local vert ids to sort
-    // The entries sverts[i].one hold the local vertex ids.
     oh::HostRead<oh::GO> GlobalVertNum (o_mesh->globals(0));
     auto is_shared = mark_shared_ents (o_mesh, 0);
-    fprintf(stderr, "ok4.1\n");
 
     for (int ent = 0; ent < o_mesh->nverts(); ++ent) {
       if (is_shared[ent] == 1) {
         long id = GlobalVertNum[ent];
         sverts.Append(Pair<int,int>(ent, ent));
-        //sverts.Append(Pair<long,int>(id, ent));
-        #ifdef DEBUG_MODE
-          fprintf(stderr, "ent %d of dim %d is shared\n", ent, 0);
-        #endif
       }
     }
     sverts.Sort();
-    fprintf(stderr, "ok4.2\n");
 
     // create groups and replace the global id in sfaces[i].one with group id
     svert_group.SetSize(sverts.Size());
     Array<int> eleRanks;
     std::map<std::int32_t, std::set<unsigned int>> shared_verts;
     get_shared_ranks(o_mesh, oh::VERT, &shared_verts);
-    fprintf(stderr, "ok4.3\n");
 
     for (int i = 0; i < sverts.Size(); i++) {
       int ent = sverts[i].two;
       int kk = 0;
-      fprintf(stderr, "ok4.3.1 size %d\n", shared_verts[ent].size());
       eleRanks.SetSize(shared_verts[ent].size());
-      fprintf(stderr, "ok4.3.2 size %d\n", shared_verts[ent].size());
       for (std::set<unsigned int>::iterator itr = shared_verts[ent].begin();
            itr != shared_verts[ent].end(); itr++) {
         eleRanks[kk++] = *itr;
       }
-      fprintf(stderr, "ok4.3.3 size %d\n", shared_verts[ent].size());
       group.Recreate(eleRanks.Size(), eleRanks);
-      fprintf(stderr, "ok4.3.4 ent %d size %d\n", ent, shared_verts[ent].size());
       svert_group[i] = groups.Insert(group) - 1;
-      fprintf(stderr, "ok4.3.5 size %d\n", shared_verts[ent].size());
     }
-    fprintf(stderr, "ok4.4\n");
   }
-  fprintf(stderr, "ok5\n");
 
   // Build group_stria and group_squad.
   // Also allocate shared_trias, shared_quads, and sface_lface.
@@ -567,7 +513,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   }
   group_stria.ShiftUpI();
   group_squad.ShiftUpI();
-  fprintf(stderr, "ok6\n");
 
   // Build group_sedge
   group_sedge.MakeI(groups.Size()-1);
@@ -579,7 +524,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     group_sedge.AddConnection(sedges[i].one, i);
   }
   group_sedge.ShiftUpI();
-  fprintf(stderr, "ok7\n");
 
   // Build group_svert
   group_svert.MakeI(groups.Size()-1);
@@ -591,7 +535,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     group_svert.AddConnection(svert_group[i], i);
   }
   group_svert.ShiftUpI();
-  fprintf(stderr, "ok8\n");
 
   // Build shared_trias and shared_quads. They are allocated above.
   {
@@ -607,7 +550,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       }
     }
   }
-  fprintf(stderr, "ok9\n");
 
   // Build shared_edges and allocate sedge_ledge
   shared_edges.SetSize(sedges.Size());
@@ -624,32 +566,25 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
       id2 = temp;
     }
 
-    fprintf(stderr, "ok9.1 edge = %d\n", ent);
     shared_edges[i] = new Segment(id1, id2, 1);
   }
-  fprintf(stderr, "ok10\n");
 
   // Build svert_lvert
   svert_lvert.SetSize(sverts.Size());
   for (int i = 0; i < sverts.Size(); i++) {
     svert_lvert[i] = sverts[i].two; // local entity id of vert
-    //svert_lvert[i] = sverts[i].one;
   }
-  fprintf(stderr, "ok11\n");
 
   // Build the group communication topology
   gtopo.Create(groups, 822);
-  fprintf(stderr, "ok12\n");
 
   // Determine sedge_ledge and sface_lface
   FinalizeParTopo();
-  fprintf(stderr, "ok13\n");
 
   // Set nodes for higher order mesh
   // n.a.: linear mesh
 
   Finalize(refine, fix_orientation);
-  fprintf(stderr, "ok14\n");
 }
 
 } // end namespace mfem
