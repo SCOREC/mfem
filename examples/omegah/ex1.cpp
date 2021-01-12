@@ -83,9 +83,9 @@ void test_3d_mesh(oh::Library *lib) {
   o_high[0] = 1.0; o_high[1] = 1.0; o_high[2] = 1.0;
 
   auto o_mesh = oh::build_box (lib->world(), OMEGA_H_SIMPLEX,
-                               o_high[0], o_high[1], o_high[2], 2, 2, 2);
-  oh::vtk::write_parallel ("box_3d", &o_mesh);
-  oh::binary::write ("o_box_3d.osh", &o_mesh);
+                               o_high[0], o_high[1], o_high[2], 20, 20, 20);
+  oh::vtk::write_parallel ("box_3d_8k.vtk", &o_mesh);
+  oh::binary::write ("o_box_3d_8k.osh", &o_mesh); // writes o_mesh
 
   // call omegaH to mfem constructor
   Mesh *mesh = new OmegaMesh (&o_mesh);

@@ -64,7 +64,7 @@ void test_2d_mesh(oh::Library *lib) {
 
 void test_3d_mesh(oh::Library *lib) {
   oh::Mesh o_mesh(lib);
-  oh::binary::read ("/users/joshia5/new_mesh/box_3d_8ele_4p.osh", lib->world(),
+  oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_2p.osh", lib->world(),
                     &o_mesh);
 
   Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
@@ -72,7 +72,7 @@ void test_3d_mesh(oh::Library *lib) {
 
   check_ents (&o_mesh, mesh);
   char f_mfem_mesh [128];
-  sprintf(f_mfem_mesh, "box_2d_mfem_2p_%d.vtk", rank);
+  sprintf(f_mfem_mesh, "box_3d_48k_2p_mfem_rank%d.vtk", rank);
   std::fstream vtkFs (f_mfem_mesh, std::ios::out);
   mesh->PrintVTK(vtkFs);
   return;
