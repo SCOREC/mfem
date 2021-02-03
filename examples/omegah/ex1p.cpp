@@ -51,7 +51,7 @@ void test_2d_mesh(oh::Library *lib) {
   oh::binary::read ("/users/joshia5/new_mesh/box_2d_8ele_2p.osh", lib->world(),
                     &o_mesh);
 
-  Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
+  ParMesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
   auto rank = lib->world()->rank();
 
   check_ents (&o_mesh, mesh);
@@ -67,7 +67,7 @@ void test_3d_mesh(oh::Library *lib) {
   oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_2p.osh", lib->world(),
                     &o_mesh);
 
-  Mesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
+  ParMesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
   auto rank = lib->world()->rank();
 
   check_ents (&o_mesh, mesh);
