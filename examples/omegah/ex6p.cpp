@@ -46,8 +46,6 @@
 #include <Omega_h_file.hpp>
 #include <Omega_h_library.hpp>
 #include <Omega_h_mesh.hpp>
-#include <Omega_h_comm.hpp>
-#include <Omega_h_build.hpp>
 
 using namespace std;
 using namespace mfem;
@@ -69,7 +67,6 @@ int main(int argc, char *argv[])
                     &o_mesh);
 
   ParMesh *mesh_ex = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
-  //delete mesh_ex;
   fprintf(stderr, "converted omega to mfem mesh\n");
   /* */
 
@@ -110,7 +107,9 @@ int main(int argc, char *argv[])
    // 3. Enable hardware devices such as GPUs, and programming models such as
    //    CUDA, OCCA, RAJA and OpenMP based on command line options.
    const char *gpu_device_config = "cuda";
-   //Device device(gpu_device_config); // ERROR: abort, require MFEM built with MFEM_USE_CUDA=YES
+   //Device device(gpu_device_config); // ERROR: abort, require MFEM built
+   //with MFEM_USE_CUDA=YES and this is a noncuda build because of cmake -W
+   //error
    Device device(device_config);
    if (myid == 0) { device.Print(); }
 
@@ -327,7 +326,6 @@ int main(int argc, char *argv[])
       b.Update();
    }
 
-   MPI_Finalize();
-  fprintf(stderr, "mpi finalized\n");
+   //MPI_Finalize(); //remove because oh::lib
    return 0;
 }
