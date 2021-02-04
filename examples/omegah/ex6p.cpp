@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
-  /* test if converter can be called */
+  /* test if converter can be called; all other code is cpy from mfem ex6p*/
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
   oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
@@ -326,6 +326,5 @@ int main(int argc, char *argv[])
       b.Update();
    }
 
-   //MPI_Finalize(); //remove because oh::lib
    return 0;
 }
