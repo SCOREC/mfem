@@ -66,10 +66,246 @@ int main(int argc, char *argv[])
   oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
                     &o_mesh);
 
-  ParMesh *mesh_ex = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
-  fprintf(stderr, "converted omega to mfem mesh\n");
+  ParMesh *pmesh = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
   /* */
 
+   int order = 1;
+   bool static_cond = false;
+   bool visualization = 1;
+   int geom_order = 1;
+   double adapt_ratio = 0.05;
+  auto dim = o_mesh.dim();
+  // COPY ALL CODE AFTER ParPumiMesh call from constructor
+  // try to replace with omega api calls
+   // 6. Define a parallel finite element space on the parallel mesh. Here we
+   //    use continuous Lagrange finite elements of the specified order. If
+   //    order < 1, we instead use an isoparametric/isogeometric space.
+   FiniteElementCollection *fec;
+   if (order > 0)
+   {
+      fec = new H1_FECollection(order, dim);
+   }
+   else if (pmesh->GetNodes())
+   {
+      fec = pmesh->GetNodes()->OwnFEC();
+      if (myid == 1)
+      {
+         cout << "Using isoparametric FEs: " << fec->Name() << endl;
+      }
+   }
+   else
+   {
+      fec = new H1_FECollection(order = 1, dim);
+   }
+   ParFiniteElementSpace *fespace = new ParFiniteElementSpace(pmesh, fec);
+   HYPRE_Int size = fespace->GlobalTrueVSize();
+   if (myid == 1)
+   {
+      cout << "Number of finite element unknowns: " << size << endl;
+   }
+
+   // 7. Set up the parallel linear form b(.) which corresponds to the
+   //    right-hand side of the FEM linear system, which in this case is
+   //    (1,phi_i) where phi_i are the basis functions in fespace.
+   ParLinearForm *b = new ParLinearForm(fespace);
+   ConstantCoefficient one(1.0);
+   b->AddDomainIntegrator(new DomainLFIntegrator(one));
+
+   // 8. Define the solution vector x as a parallel finite element grid function
+   //    corresponding to fespace. Initialize x with initial guess of zero,
+   //    which satisfies the boundary conditions.
+   ParGridFunction x(fespace);
+   x = 0.0;
+
+   // 9. Connect to GLVis.
+   char vishost[] = "localhost";
+   int  visport   = 19916;
+
+   socketstream sout;
+   if (visualization)
+   {
+      sout.open(vishost, visport);
+      if (!sout)
+      {
+         if (myid == 0)
+         {
+            cout << "Unable to connect to GLVis server at "
+                 << vishost << ':' << visport << endl;
+            cout << "GLVis visualization disabled.\n";
+         }
+         visualization = false;
+      }
+
+      sout.precision(8);
+   }
+
+   // 10. Set up the parallel bilinear form a(.,.) on the finite element space
+   //     corresponding to the Laplacian operator -Delta, by adding the
+   //     Diffusion domain integrator.
+   ParBilinearForm *a = new ParBilinearForm(fespace);
+   a->AddDomainIntegrator(new DiffusionIntegrator(one));
+
+   // 11. Assemble the parallel bilinear form and the corresponding linear
+   //     system, applying any necessary transformations such as: parallel
+   //     assembly, eliminating boundary conditions, applying conforming
+   //     constraints for non-conforming AMR, static condensation, etc.
+   if (static_cond) { a->EnableStaticCondensation(); }
+
+   // 12. The main AMR loop. In each iteration we solve the problem on the
+   //     current mesh, visualize the solution, and adapt the mesh.
+   int max_iter = 1;
+/*
+THIS WILL CHANGE TO CALL OMEGAH ADAPT CALLS
+   apf::Field* Tmag_field = 0;
+   apf::Field* temp_field = 0;
+   apf::Field* ipfield = 0;
+   apf::Field* sizefield = 0;
+*/
+
+   for (int Itr = 0; Itr < max_iter; Itr++)
+   {
+      HYPRE_Int global_dofs = fespace->GlobalTrueVSize();
+      if (myid == 1)
+      {
+         cout << "\nAMR iteration " << Itr << endl;
+         cout << "Number of unknowns: " << global_dofs << endl;
+      }
+
+      // Assemble.
+      a->Assemble();
+      b->Assemble();
+
+      // Essential boundary condition.
+      Array<int> ess_tdof_list;
+      if (pmesh->bdr_attributes.Size())
+      {
+         Array<int> ess_bdr(pmesh->bdr_attributes.Max());
+         ess_bdr = 1;
+         fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+      }
+
+      // Form linear system.
+      HypreParMatrix A;
+      Vector B, X;
+      const int copy_interior = 1;
+      a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B, copy_interior);
+
+      // 13. Define and apply a parallel PCG solver for AX=B with the BoomerAMG
+      //     preconditioner from hypre.
+      HypreBoomerAMG amg;
+      amg.SetPrintLevel(0);
+      CGSolver pcg(A.GetComm());
+      pcg.SetPreconditioner(amg);
+      pcg.SetOperator(A);
+      pcg.SetRelTol(1e-6);
+      pcg.SetMaxIter(200);
+      pcg.SetPrintLevel(3); // print the first and the last iterations only
+      pcg.Mult(B, X);
+
+      // 14. Recover the parallel grid function corresponding to X. This is the
+      //     local finite element solution on each processor.
+      a->RecoverFEMSolution(X, *b, x);
+
+      // 15. Save in parallel the displaced mesh and the inverted solution (which
+      //     gives the backward displacements to the original grid). This output
+      //     can be viewed later using GLVis: "glvis -np <np> -m mesh -g sol".
+      {
+         ostringstream mesh_name, sol_name;
+         mesh_name << "mesh." << setfill('0') << setw(6) << myid;
+         sol_name << "sol." << setfill('0') << setw(6) << myid;
+
+         ofstream mesh_ofs(mesh_name.str().c_str());
+         mesh_ofs.precision(8);
+         pmesh->Print(mesh_ofs);
+
+         ofstream sol_ofs(sol_name.str().c_str());
+         sol_ofs.precision(8);
+         x.Save(sol_ofs);
+      }
+
+      // 16. Send the above data by socket to a GLVis server.  Use the "n" and "b"
+      //     keys in GLVis to visualize the displacements.
+      if (visualization)
+      {
+         sout << "parallel " << num_procs << " " << myid << "\n";
+         sout << "solution\n" << *pmesh << x << flush;
+      }
+
+      // 17. Field transfer. Scalar solution field and magnitude field for error
+      //     estimation are created the PUMI mesh.
+/*
+      if (order > geom_order)
+      {
+         Tmag_field = apf::createField(pumi_mesh, "field_mag",
+                                       apf::SCALAR, apf::getLagrange(order));
+         temp_field = apf::createField(pumi_mesh, "T_field",
+                                       apf::SCALAR, apf::getLagrange(order));
+      }
+      else
+      {
+         Tmag_field = apf::createFieldOn(pumi_mesh, "field_mag",apf::SCALAR);
+         temp_field = apf::createFieldOn(pumi_mesh, "T_field", apf::SCALAR);
+      }
+
+      ParPumiMesh* pPPmesh = dynamic_cast<ParPumiMesh*>(pmesh);
+      pPPmesh->FieldMFEMtoPUMI(pumi_mesh, &x, temp_field, Tmag_field);
+
+      ipfield= spr::getGradIPField(Tmag_field, "MFEM_gradip", 2);
+      sizefield = spr::getSPRSizeField(ipfield, adapt_ratio);
+
+      apf::destroyField(Tmag_field);
+      apf::destroyField(ipfield);
+
+      // 18. Perform MeshAdapt.
+      ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
+      erinput->shouldFixShape = true;
+      erinput->maximumIterations = 2;
+      if ( geom_order > 1)
+      {
+         crv::adapt(erinput);
+      }
+      else
+      {
+         ma::adapt(erinput);
+      }
+
+      ParMesh* Adapmesh = new ParPumiMesh(MPI_COMM_WORLD, pumi_mesh);
+      pPPmesh->UpdateMesh(Adapmesh);
+      delete Adapmesh;
+
+*/
+      // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
+      fespace->Update();
+      x.Update();
+      x = 0.0;
+
+/*
+      pPPmesh->FieldPUMItoMFEM(pumi_mesh, temp_field, &x);
+*/
+      a->Update();
+      b->Update();
+
+/*
+      // Destroy fields.
+      apf::destroyField(temp_field);
+      apf::destroyField(sizefield);
+*/
+   }
+
+   // 20. Free the used memory.
+   delete a;
+   delete b;
+   delete fespace;
+   if (order > 0) { delete fec; }
+   delete pmesh;
+
+/*
+   pumi_mesh->destroyNative();
+   apf::destroyMesh(pumi_mesh);
+   PCU_Comm_Free();
+*/
+
+/*
    // 2. Parse command-line options.
    const char *mesh_file = "../../data/star.mesh";
    int order = 1;
@@ -325,6 +561,7 @@ int main(int argc, char *argv[])
       a.Update();
       b.Update();
    }
+*/
 
    return 0;
 }
