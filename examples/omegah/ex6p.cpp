@@ -47,10 +47,71 @@
 #include <Omega_h_library.hpp>
 #include <Omega_h_mesh.hpp>
 
+#include <Omega_h_adapt.hpp>
+#include <Omega_h_for.hpp>
+#include <Omega_h_metric.hpp>
+#include <Omega_h_timer.hpp>
+
 using namespace std;
 using namespace mfem;
 
 namespace oh = Omega_h;
+
+namespace { // anonymous namespace
+
+/* this function is copied from the file
+ * ugawg_linear.cpp of omega_h source code
+ */
+template <oh::Int dim>
+static void set_target_metric(oh::Mesh* mesh) {
+  auto coords = mesh->coords();
+  auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
+  auto f = OMEGA_H_LAMBDA(oh::LO v) {
+    auto z = coords[v * dim + (dim - 1)];
+    auto h = oh::Vector<dim>();
+    for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
+    h[dim - 1] = 0.001 + 0.198 * std::abs(z - 0.5);
+    auto m = diagonal(metric_eigenvalues_from_lengths(h));
+    set_symm(target_metrics_w, v, m);
+  };
+  oh::parallel_for(mesh->nverts(), f);
+  mesh->set_tag(oh::VERT, "target_metric", oh::Reals(target_metrics_w));
+}
+
+/* this function is copied from the file
+ * ugawg_linear.cpp of omega_h source code
+ */
+template <oh::Int dim>
+void run_case(oh::Mesh* mesh, char const* vtk_path) {
+  auto world = mesh->comm();
+  mesh->set_parting(OMEGA_H_GHOSTED);
+  auto implied_metrics = get_implied_metrics(mesh);
+  mesh->add_tag(oh::VERT, "metric", oh::symm_ncomps(dim), implied_metrics);
+  mesh->add_tag<oh::Real>(oh::VERT, "target_metric", oh::symm_ncomps(dim));
+  set_target_metric<dim>(mesh);
+  mesh->set_parting(OMEGA_H_ELEM_BASED);
+  mesh->ask_lengths();
+  mesh->ask_qualities();
+  oh::vtk::FullWriter writer;
+  if (vtk_path) {
+    writer = oh::vtk::FullWriter(vtk_path, mesh);
+    writer.write();
+  }
+  auto opts = oh::AdaptOpts(mesh);
+  opts.verbosity = oh::EXTRA_STATS;
+  opts.length_histogram_max = 2.0;
+  opts.max_length_allowed = opts.max_length_desired * 2.0;
+  oh::Now t0 = oh::now();
+  while (approach_metric(mesh, opts)) {
+    adapt(mesh, opts);
+    if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh);
+    if (vtk_path) writer.write();
+  }
+  oh::Now t1 = oh::now();
+  std::cout << "total time: " << (t1 - t0) << " seconds\n";
+}
+
+} // end anonymous namespace
 
 int main(int argc, char *argv[])
 {
@@ -65,10 +126,13 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
+  oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh", lib.world(),
+  //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
                     &o_mesh);
 
-  // 4. Refine the mesh if necessary
+  // 4. Adapt the mesh if necessary
+  if (o_mesh.dim() == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
+  if (o_mesh.dim() == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
 
   // 5. Create parallel mfem mesh object
   ParMesh *pmesh = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
