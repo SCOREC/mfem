@@ -102,11 +102,11 @@ void run_case(oh::Mesh* mesh, char const* vtk_path) {
   opts.length_histogram_max = 2.0;
   opts.max_length_allowed = opts.max_length_desired * 2.0;
   oh::Now t0 = oh::now();
-  while (approach_metric(mesh, opts)) {
+//  while (approach_metric(mesh, opts)) {
     adapt(mesh, opts);
     if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh);
     if (vtk_path) writer.write();
-  }
+//  }
   oh::Now t1 = oh::now();
   std::cout << "total time: " << (t1 - t0) << " seconds\n";
 }
@@ -131,9 +131,10 @@ int main(int argc, char *argv[])
                     &o_mesh);
 
   // 4. Adapt the mesh if necessary
+/*
   if (o_mesh.dim() == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
   if (o_mesh.dim() == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
-
+*/
   // 5. Create parallel mfem mesh object
   ParMesh *pmesh = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
 
@@ -219,7 +220,6 @@ int main(int argc, char *argv[])
 
   // 12. The main AMR loop. In each iteration we solve the problem on the
   //     current mesh, visualize the solution, and adapt the mesh.
-  int max_iter = 1;
 /*
 THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
    apf::Field* Tmag_field = 0;
@@ -227,6 +227,7 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
    apf::Field* ipfield = 0;
    apf::Field* sizefield = 0;
 */
+  int max_iter = 3;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {
@@ -314,6 +315,9 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
       }
 
       ParPumiMesh* pPPmesh = dynamic_cast<ParPumiMesh*>(pmesh);
+*/
+    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
+/*
       pPPmesh->FieldMFEMtoPUMI(pumi_mesh, &x, temp_field, Tmag_field);
 
       ipfield= spr::getGradIPField(Tmag_field, "MFEM_gradip", 2);
@@ -321,8 +325,12 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
 
       apf::destroyField(Tmag_field);
       apf::destroyField(ipfield);
+*/
 
-      // 18. Perform MeshAdapt.
+    // 18. Perform adapt
+    if (dim == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
+    if (dim == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
+/*
       ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
       erinput->shouldFixShape = true;
       erinput->maximumIterations = 2;
@@ -334,12 +342,12 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
       {
          ma::adapt(erinput);
       }
-
-      ParMesh* Adapmesh = new ParPumiMesh(MPI_COMM_WORLD, pumi_mesh);
-      pPPmesh->UpdateMesh(Adapmesh);
-      delete Adapmesh;
-
 */
+
+    ParMesh *Adapmesh = new ParOmegaMesh(MPI_COMM_WORLD, &o_mesh);
+    //pOmesh->UpdateMesh(Adapmesh);
+    delete Adapmesh;
+
     // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
     x.Update();

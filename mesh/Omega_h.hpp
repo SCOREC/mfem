@@ -44,8 +44,12 @@ namespace mfem
 class OmegaMesh : public Mesh
 {
 public:
+  /// Generate an MFEM mesh from a Omega_h mesh.
   OmegaMesh(Omega_h::Mesh* o_mesh, int refine = 0,
             bool fix_orientation = true, const int curved = 0);
+
+  /// Destroys Mesh.
+  virtual ~OmegaMesh() {}
 };
 
 /// Class for parallel Omega_h meshes
@@ -57,6 +61,11 @@ public:
   // corresponding to it.
   ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, int refine = 0,
             bool fix_orientation = true, const int curved = 0);
+
+  /// Update the mesh after adaptation.
+  void UpdateMesh(const ParMesh *AdaptedpMesh);
+
+  virtual ~ParOmegaMesh() {}
 };
 
 
