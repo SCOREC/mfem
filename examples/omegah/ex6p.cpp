@@ -63,14 +63,14 @@ namespace { // anonymous namespace
  * ugawg_linear.cpp of omega_h source code
  */
 template <oh::Int dim>
-static void set_target_metric(oh::Mesh* mesh) {
+static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
     auto z = coords[v * dim + (dim - 1)];
     auto h = oh::Vector<dim>();
     for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
-    h[dim - 1] = 0.001 + 0.198 * std::abs(z - 0.5);
+    h[dim - 1] = 1*(scale + 1)*(0.001 + 0.198 * std::abs(z - 0.5));
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -82,13 +82,13 @@ static void set_target_metric(oh::Mesh* mesh) {
  * ugawg_linear.cpp of omega_h source code
  */
 template <oh::Int dim>
-void run_case(oh::Mesh* mesh, char const* vtk_path) {
+void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale) {
   auto world = mesh->comm();
   mesh->set_parting(OMEGA_H_GHOSTED);
   auto implied_metrics = get_implied_metrics(mesh);
   mesh->add_tag(oh::VERT, "metric", oh::symm_ncomps(dim), implied_metrics);
   mesh->add_tag<oh::Real>(oh::VERT, "target_metric", oh::symm_ncomps(dim));
-  set_target_metric<dim>(mesh);
+  set_target_metric<dim>(mesh, scale);
   mesh->set_parting(OMEGA_H_ELEM_BASED);
   mesh->ask_lengths();
   mesh->ask_qualities();
@@ -104,7 +104,8 @@ void run_case(oh::Mesh* mesh, char const* vtk_path) {
   oh::Now t0 = oh::now();
   while (approach_metric(mesh, opts)) {
     adapt(mesh, opts);
-    if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh);
+    if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh,
+                      scale);
     if (vtk_path) writer.write();
   }
   oh::Now t1 = oh::now();
@@ -131,10 +132,6 @@ int main(int argc, char *argv[])
                     &o_mesh);
 
   // 4. Adapt the mesh if necessary
-/*
-  if (o_mesh.dim() == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
-  if (o_mesh.dim() == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
-*/
   // 5. Create parallel mfem mesh object
   ParMesh *pmesh = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
 
@@ -218,16 +215,9 @@ int main(int argc, char *argv[])
   //     constraints for non-conforming AMR, static condensation, etc.
   if (static_cond) { a->EnableStaticCondensation(); }
 
-  // 12. The main AMR loop. In each iteration we solve the problem on the
+  // 12. The main adaptive loop. In each iteration we solve the problem on the
   //     current mesh, visualize the solution, and adapt the mesh.
-/*
-THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
-   apf::Field* Tmag_field = 0;
-   apf::Field* temp_field = 0;
-   apf::Field* ipfield = 0;
-   apf::Field* sizefield = 0;
-*/
-  int max_iter = 1;
+  int max_iter = 3;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {
@@ -299,72 +289,34 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
     }
 
     // 17. Field transfer. Scalar solution field and magnitude field for error
-    //     estimation are created the PUMI mesh.
-/*
-      if (order > geom_order)
-      {
-         Tmag_field = apf::createField(pumi_mesh, "field_mag",
-                                       apf::SCALAR, apf::getLagrange(order));
-         temp_field = apf::createField(pumi_mesh, "T_field",
-                                       apf::SCALAR, apf::getLagrange(order));
-      }
-      else
-      {
-         Tmag_field = apf::createFieldOn(pumi_mesh, "field_mag",apf::SCALAR);
-         temp_field = apf::createFieldOn(pumi_mesh, "T_field", apf::SCALAR);
-      }
+    //     estimation are created from the Omega_h mesh.
 
-      ParPumiMesh* pPPmesh = dynamic_cast<ParPumiMesh*>(pmesh);
-*/
-    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
-/*
-      pPPmesh->FieldMFEMtoPUMI(pumi_mesh, &x, temp_field, Tmag_field);
-
-      ipfield= spr::getGradIPField(Tmag_field, "MFEM_gradip", 2);
-      sizefield = spr::getSPRSizeField(ipfield, adapt_ratio);
-
-      apf::destroyField(Tmag_field);
-      apf::destroyField(ipfield);
-*/
+    //ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
 
     // 18. Perform adapt
-    if (dim == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
-    //if (dim == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
-    if (dim == 3) run_case<3>(&o_mesh,"/users/joshia5/new_mesh/ohAdapt_cube50k.vtk");
-/*
-      ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
-      erinput->shouldFixShape = true;
-      erinput->maximumIterations = 2;
-      if ( geom_order > 1)
-      {
-         crv::adapt(erinput);
-      }
-      else
-      {
-         ma::adapt(erinput);
-      }
-*/
 
-    ParMesh *Adapmesh = new ParOmegaMesh(MPI_COMM_WORLD, &o_mesh);
+    char fname[128];
+    //sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1XIter_cube50k.vtk");
+    sprintf(fname, "/users/joshia5/new_mesh/ohAdapt2XIter_kova.vtk", Itr);
+    char iter_str[8];
+    sprintf(iter_str, "_%d", Itr);
+    strcat(fname, iter_str);
+    puts(fname);
+
+    run_case<3>(&o_mesh, fname, Itr);
+
+    //ParMesh *Adapmesh = new ParOmegaMesh(MPI_COMM_WORLD, &o_mesh);
     //pOmesh->UpdateMesh(Adapmesh);
-    delete Adapmesh;
+    //delete Adapmesh;
 
     // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
     x.Update();
     x = 0.0;
 
-/*
-      pPPmesh->FieldPUMItoMFEM(pumi_mesh, temp_field, &x);
-*/
     a->Update();
     b->Update();
 
-/*
-      // Destroy fields.
-      apf::destroyField(temp_field);
-      apf::destroyField(sizefield);
-*/
   }
 
   // 20. Free the used memory.
@@ -373,12 +325,6 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
   delete fespace;
   if (order > 0) { delete fec; }
   delete pmesh;
-
-/*
-   pumi_mesh->destroyNative();
-   apf::destroyMesh(pumi_mesh);
-   PCU_Comm_Free();
-*/
 
   return 0;
 }
