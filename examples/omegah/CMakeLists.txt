@@ -43,7 +43,7 @@ add_mfem_examples(OMEGAH_EXAMPLES_SRCS ${PFX} "" test_omegah)
 # MFEM_MPI_NP is ignored.
 set(EX1_TEST_NP 1)
 set(EX1P_TEST_NP 2)
-set(EX6P_TEST_NP 8)
+set(EX6P_TEST_NP 4)
 
 # Add the tests: one test per source file.
 foreach(SRC_FILE ${OMEGAH_EXAMPLES_SRCS})

@@ -102,11 +102,11 @@ void run_case(oh::Mesh* mesh, char const* vtk_path) {
   opts.length_histogram_max = 2.0;
   opts.max_length_allowed = opts.max_length_desired * 2.0;
   oh::Now t0 = oh::now();
-//  while (approach_metric(mesh, opts)) {
+  while (approach_metric(mesh, opts)) {
     adapt(mesh, opts);
     if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh);
     if (vtk_path) writer.write();
-//  }
+  }
   oh::Now t1 = oh::now();
   std::cout << "total time: " << (t1 - t0) << " seconds\n";
 }
@@ -126,8 +126,8 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh", lib.world(),
-  //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
+  //oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh", lib.world(),
+  oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
                     &o_mesh);
 
   // 4. Adapt the mesh if necessary
@@ -227,7 +227,7 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
    apf::Field* ipfield = 0;
    apf::Field* sizefield = 0;
 */
-  int max_iter = 3;
+  int max_iter = 1;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {
@@ -329,7 +329,8 @@ THIS WILL CHANGE TO CALL OMEGAH FIELDS & ADAPT CALLS
 
     // 18. Perform adapt
     if (dim == 2) run_case<2>(&o_mesh, "/users/joshia5/oh_2dadapt.vtk");
-    if (dim == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
+    //if (dim == 3) run_case<3>(&o_mesh, "/users/joshia5/new_mesh/ohAdapt_kova.vtk");
+    if (dim == 3) run_case<3>(&o_mesh,"/users/joshia5/new_mesh/ohAdapt_cube50k.vtk");
 /*
       ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
       erinput->shouldFixShape = true;
