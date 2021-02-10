@@ -70,7 +70,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
     auto z = coords[v * dim + (dim - 1)];
     auto h = oh::Vector<dim>();
     for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
-    h[dim - 1] = 1*(scale + 1)*(0.001 + 0.198 * std::abs(z - 0.5));
+    h[dim - 1] = 1.5*(scale + 1)*(0.001 + 0.198 * std::abs(z - 0.5));
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -82,7 +82,8 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
  * ugawg_linear.cpp of omega_h source code
  */
 template <oh::Int dim>
-void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale) {
+void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
+              const oh::Int myid) {
   auto world = mesh->comm();
   mesh->set_parting(OMEGA_H_GHOSTED);
   auto implied_metrics = get_implied_metrics(mesh);
@@ -109,7 +110,7 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale) {
     if (vtk_path) writer.write();
   }
   oh::Now t1 = oh::now();
-  std::cout << "total time: " << (t1 - t0) << " seconds\n";
+  if (!myid) std::cout << "total time: " << (t1 - t0) << " seconds\n";
 }
 
 } // end anonymous namespace
@@ -127,19 +128,23 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  //oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh", lib.world(),
-  oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh", lib.world(),
-                    &o_mesh);
+  oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh",
+  //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
+                    lib.world(), &o_mesh);
 
-  // 4. Adapt the mesh if necessary
+  // 4. The main adaptive loop. In each iteration we create mfem mesh from
+  // oh::mesh, initialize fe and solve, then adapt the oh::mesh for use in next
+  // iteration
+  int max_iter = 3;
+
+  for (int Itr = 0; Itr < max_iter; Itr++)
+  {
   // 5. Create parallel mfem mesh object
   ParMesh *pmesh = new ParOmegaMesh (lib.world()->get_impl(), &o_mesh);
 
   int order = 1;
   bool static_cond = false;
   bool visualization = 1;
-  int geom_order = 1;
-  double adapt_ratio = 0.05;
   auto dim = o_mesh.dim();
   // 6. Define a parallel finite element space on the parallel mesh. Here we
   //    use continuous Lagrange finite elements of the specified order. If
@@ -215,12 +220,6 @@ int main(int argc, char *argv[])
   //     constraints for non-conforming AMR, static condensation, etc.
   if (static_cond) { a->EnableStaticCondensation(); }
 
-  // 12. The main adaptive loop. In each iteration we solve the problem on the
-  //     current mesh, visualize the solution, and adapt the mesh.
-  int max_iter = 3;
-
-  for (int Itr = 0; Itr < max_iter; Itr++)
-  {
     HYPRE_Int global_dofs = fespace->GlobalTrueVSize();
     if (myid == 1)
     {
@@ -247,7 +246,7 @@ int main(int argc, char *argv[])
     const int copy_interior = 1;
     a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B, copy_interior);
 
-    // 13. Define and apply a parallel PCG solver for AX=B with the BoomerAMG
+    // 12. Define and apply a parallel PCG solver for AX=B with the BoomerAMG
     //     preconditioner from hypre.
     HypreBoomerAMG amg;
     amg.SetPrintLevel(0);
@@ -259,11 +258,11 @@ int main(int argc, char *argv[])
     pcg.SetPrintLevel(3); // print the first and the last iterations only
     pcg.Mult(B, X);
 
-    // 14. Recover the parallel grid function corresponding to X. This is the
+    // 13. Recover the parallel grid function corresponding to X. This is the
     //     local finite element solution on each processor.
     a->RecoverFEMSolution(X, *b, x);
 
-    // 15. Save in parallel the displaced mesh and the inverted solution (which
+    // 14. Save in parallel the displaced mesh and the inverted solution (which
     //     gives the backward displacements to the original grid). This output
     //     can be viewed later using GLVis: "glvis -np <np> -m mesh -g sol".
     {
@@ -280,7 +279,7 @@ int main(int argc, char *argv[])
       x.Save(sol_ofs);
     }
 
-    // 16. Send the above data by socket to a GLVis server.  Use the "n" and "b"
+    // 15. Send the above data by socket to a GLVis server. Use the "n" and "b"
     //     keys in GLVis to visualize the displacements.
     if (visualization)
     {
@@ -288,28 +287,28 @@ int main(int argc, char *argv[])
       sout << "solution\n" << *pmesh << x << flush;
     }
 
-    // 17. Field transfer. Scalar solution field and magnitude field for error
+    // 16. Field transfer. Scalar solution field and magnitude field for error
     //     estimation are created from the Omega_h mesh.
 
     //ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
 
-    // 18. Perform adapt
+    // 17. Perform adapt
 
     char fname[128];
-    //sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1XIter_cube50k.vtk");
-    sprintf(fname, "/users/joshia5/new_mesh/ohAdapt2XIter_kova.vtk", Itr);
+    sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_kova.vtk");
+    //sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(fname, iter_str);
     puts(fname);
 
-    run_case<3>(&o_mesh, fname, Itr);
+    run_case<3>(&o_mesh, fname, Itr, myid);
 
     //ParMesh *Adapmesh = new ParOmegaMesh(MPI_COMM_WORLD, &o_mesh);
     //pOmesh->UpdateMesh(Adapmesh);
     //delete Adapmesh;
 
-    // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
+    // 18. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
     x.Update();
     x = 0.0;
@@ -317,14 +316,13 @@ int main(int argc, char *argv[])
     a->Update();
     b->Update();
 
+    // 19. Free the used memory.
+    delete a;
+    delete b;
+    delete fespace;
+    if (order > 0) { delete fec; }
+    delete pmesh;
   }
-
-  // 20. Free the used memory.
-  delete a;
-  delete b;
-  delete fespace;
-  if (order > 0) { delete fec; }
-  delete pmesh;
 
   return 0;
 }
