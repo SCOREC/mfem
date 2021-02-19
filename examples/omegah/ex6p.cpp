@@ -2,26 +2,9 @@
 //
 // Compile with: make ex6p
 //
-// Sample runs:  mpirun -np 4 ex6p -m ../data/square-disc.mesh -o 1
-//               mpirun -np 4 ex6p -m ../data/square-disc.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/square-disc-nurbs.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/star.mesh -o 3
-//               mpirun -np 4 ex6p -m ../data/escher.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/fichera.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/disc-nurbs.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/ball-nurbs.mesh
-//               mpirun -np 4 ex6p -m ../data/pipe-nurbs.mesh
-//               mpirun -np 4 ex6p -m ../data/star-surf.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/square-disc-surf.mesh -o 2
-//               mpirun -np 4 ex6p -m ../data/amr-quad.mesh
+// Sample runs: 
 //
 // Device sample runs:
-//               mpirun -np 4 ex6p -pa -d cuda
-//               mpirun -np 4 ex6p -pa -d occa-cuda
-//               mpirun -np 4 ex6p -pa -d raja-omp
-//               mpirun -np 4 ex6p -pa -d ceed-cpu
-//             * mpirun -np 4 ex6p -pa -d ceed-cuda
-//               mpirun -np 4 ex6p -pa -d ceed-cuda:/gpu/cuda/shared
 //
 // Description:  This is a version of Example 1 with a simple adaptive mesh
 //               refinement loop. The problem being solved is again the Laplace
@@ -52,6 +35,8 @@
 #include <Omega_h_metric.hpp>
 #include <Omega_h_timer.hpp>
 
+#include<math.h>
+
 using namespace std;
 using namespace mfem;
 
@@ -67,10 +52,26 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
+    auto x = coords[v * dim ];
+    auto y = coords[v * dim + (dim - 2)];
     auto z = coords[v * dim + (dim - 1)];
     auto h = oh::Vector<dim>();
     for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
-    h[dim - 1] = 1.5*(scale + 1)*(0.001 + 0.198 * std::abs(z - 0.5));
+    //h[dim - 1] = 0.001*(0.001 + 0.198 * std::abs(z - 0.5));
+  //h[0] = 1*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z)));
+  //h[dim - 1] = 10*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); //4 mins
+    //with x fields 
+    //h[dim - 1] = 25*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); // 5mins
+    //h[dim - 1] = 25*(0.001 + 8 * std::abs(sqrt(x*x + y*y + z*z)));//too long
+    h[dim - 1] = 25*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y + z*z)));//runs
+    // in 3 mins,20k elems 
+    //h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs to
+    // give 20k elems
+    // h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs
+    // to give .5mil elems
+    //h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z) - 0.5));
+    //h[dim - 1] = 1.5*(scale + 1)*(0.001 + 0.198 * std::abs(z -
+    //0.5));//original * 1.5
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -102,6 +103,8 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
   opts.verbosity = oh::EXTRA_STATS;
   opts.length_histogram_max = 2.0;
   opts.max_length_allowed = opts.max_length_desired * 2.0;
+  //opts.max_length_allowed = opts.max_length_desired * 2.0;
+  opts.min_quality_allowed = 0.00001;
   oh::Now t0 = oh::now();
   while (approach_metric(mesh, opts)) {
     adapt(mesh, opts);
@@ -128,14 +131,14 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/lore/joshia5/develop/data/omegah/Kova100k_8p.osh",
+  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/cube_triCut_5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
 
   // 4. The main adaptive loop. In each iteration we create mfem mesh from
   // oh::mesh, initialize fe and solve, then adapt the oh::mesh for use in next
   // iteration
-  int max_iter = 3;
+  int max_iter = 1;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {
@@ -286,27 +289,45 @@ int main(int argc, char *argv[])
       sout << "parallel " << num_procs << " " << myid << "\n";
       sout << "solution\n" << *pmesh << x << flush;
     }
+    // print_vtk files with solution
+    // Save mfem meshes using VisitDataCollection
+    const std::string prefix_path = "";
+    std::string meshFname = "cube_cutTriCube.vtk_";
+    meshFname += std::to_string(myid);
+    VisItDataCollection dc(meshFname, pmesh);
+    dc.SetPrefixPath(prefix_path);
+    dc.RegisterField("scalar_gf", &x);
+    //dc.RegisterField("vector_gf", &vectorGF);
+    dc.Save();
+    // Save meshes and grid functions in VTK format
+    std::string fname = meshFname;
+    char f_mfem_mesh [128];
+    sprintf(f_mfem_mesh, "cube_cutTriCube.vtk_%d", myid);
+    std::fstream vtkFs (f_mfem_mesh, std::ios::out);
+    //std::fstream vtkFs( fname.c_str(), std::ios::out);
+
+    puts("writing mesh at \n");
+    puts(fname.c_str());
+
+    const int ref = 0;
+    pmesh->PrintVTK( vtkFs, ref);
+    x.SaveVTK( vtkFs, "scalar_gf", ref);
+    //vectorGF.SaveVTK( vtkFs, "vector_gf", ref);
 
     // 16. Field transfer. Scalar solution field and magnitude field for error
     //     estimation are created from the Omega_h mesh.
 
-    //ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
-
     // 17. Perform adapt
 
-    char fname[128];
-    sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_kova.vtk");
-    //sprintf(fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
+    char Fname[128];
+    sprintf(Fname, "/users/joshia5/Meshes/oh-mfem/cube_triCut_5k_4p.vtk");
+    //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
-    strcat(fname, iter_str);
-    puts(fname);
+    strcat(Fname, iter_str);
+    puts(Fname);
 
-    run_case<3>(&o_mesh, fname, Itr, myid);
-
-    //ParMesh *Adapmesh = new ParOmegaMesh(MPI_COMM_WORLD, &o_mesh);
-    //pOmesh->UpdateMesh(Adapmesh);
-    //delete Adapmesh;
+    run_case<3>(&o_mesh, Fname, Itr, myid);
 
     // 18. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
