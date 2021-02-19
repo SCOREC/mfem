@@ -131,7 +131,8 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/cube_triCut_5k_4p.osh",
+  oh::binary::read
+    ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
 
@@ -281,6 +282,16 @@ int main(int argc, char *argv[])
       sol_ofs.precision(8);
       x.Save(sol_ofs);
     }
+   // 17. Save data in the ParaView format
+   ParaViewDataCollection paraview_dc("Example5P", pmesh);
+   paraview_dc.SetPrefixPath("CutTriCube");
+   paraview_dc.SetLevelsOfDetail(1);
+   paraview_dc.SetDataFormat(VTKFormat::BINARY);
+   paraview_dc.SetHighOrderOutput(false);
+   paraview_dc.SetCycle(0);
+   paraview_dc.SetTime(0.0);
+   paraview_dc.RegisterField("temperature",&x);
+   paraview_dc.Save();
 
     // 15. Send the above data by socket to a GLVis server. Use the "n" and "b"
     //     keys in GLVis to visualize the displacements.
@@ -289,6 +300,8 @@ int main(int argc, char *argv[])
       sout << "parallel " << num_procs << " " << myid << "\n";
       sout << "solution\n" << *pmesh << x << flush;
     }
+
+/*
     // print_vtk files with solution
     // Save mfem meshes using VisitDataCollection
     const std::string prefix_path = "";
@@ -304,7 +317,6 @@ int main(int argc, char *argv[])
     char f_mfem_mesh [128];
     sprintf(f_mfem_mesh, "cube_cutTriCube.vtk_%d", myid);
     std::fstream vtkFs (f_mfem_mesh, std::ios::out);
-    //std::fstream vtkFs( fname.c_str(), std::ios::out);
 
     puts("writing mesh at \n");
     puts(fname.c_str());
@@ -312,15 +324,15 @@ int main(int argc, char *argv[])
     const int ref = 0;
     pmesh->PrintVTK( vtkFs, ref);
     x.SaveVTK( vtkFs, "scalar_gf", ref);
-    //vectorGF.SaveVTK( vtkFs, "vector_gf", ref);
-
+*/
     // 16. Field transfer. Scalar solution field and magnitude field for error
     //     estimation are created from the Omega_h mesh.
 
     // 17. Perform adapt
 
     char Fname[128];
-    sprintf(Fname, "/users/joshia5/Meshes/oh-mfem/cube_triCut_5k_4p.vtk");
+    sprintf(Fname,
+      "/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
     //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
