@@ -57,7 +57,7 @@ int count_exposedEnts (oh::Read<oh::I8> is_exposed) {
 
 oh::Read<oh::LO> get_boundary (oh::Read<oh::I8> exposed_ents,
   const int num_bdryEnts) {
-  auto n_expoEnts = exposed_ents.size();
+  auto n_expoEnts = exposed_ents.size(); // equals total no. of ents
   oh::HostWrite<oh::LO> iter_exposedSides (1, 0, 0);
   oh::HostRead<oh::I8> exposed_ents_h(exposed_ents);
   oh::HostWrite<oh::LO> boundary_h(num_bdryEnts, -1, 0);
@@ -326,6 +326,9 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
   const int dim_type = get_type(dim);
   const int bdr_type = get_type(dim-1);
+  // for storing classification Id
+  auto c_class_ids = o_mesh->get_array<oh::ClassId>(dim, "class_id");
+  oh::HostRead<oh::LO> c_class_ids_h(c_class_ids);
   // Create elements
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     elements[elem] = NewElement(dim_type); 
@@ -337,13 +340,16 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     for (int i = 0; i < nv; ++i) {
       v[i] = ev2v_h[elem*e2v_degree + i];
     }
+
+    int Attr = c_class_ids_h[elem];
+    el->SetAttribute(Attr);
   }
 
   // create boundary info; s denotes side
   auto sv2v = o_mesh->oh::Mesh::ask_down (dim - 1, oh::VERT).ab2b;
   auto exposed_sides = oh::mark_exposed_sides (o_mesh);
   const int nBdrEnts = count_exposedEnts (exposed_sides);
-  // boundary elemIDs
+  // boundary elemIDs (ids as per omega_h, sized nBdrEnts)
   auto boundaryEnts = get_boundary(exposed_sides, nBdrEnts);
   // boundary elems to verts adjacency
   auto bv2v = get_bdry2Verts(o_mesh, sv2v, boundaryEnts);
@@ -353,6 +359,12 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   // Create boundary
   NumOfBdrElements = nBdrEnts;
   boundary.SetSize(NumOfBdrElements);
+  // for storing classification Id
+  auto s_class_ids = o_mesh->get_array<oh::ClassId>(dim - 1, "class_id");
+  oh::HostRead<oh::LO> s_class_ids_h(s_class_ids);
+  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
+  oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
+
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(bdr_type);
     auto el = boundary[bdry];
@@ -363,7 +375,16 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
     for (int i = 0; i < nv; ++i) {
       v[i] = bv2v_h[bdry*b2v_degree + i];
     }
+
+    // Assign attribute for sides
+    int Attr = 1;
+    auto oh_id = boundary_h[bdry];
+    if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
+    el->SetAttribute(Attr);
   }
+
+  //Apply the attributes to mesh after setting on ents
+  this->SetAttributes();
 
   // The next two methods are called by FinalizeTopology() called below:
   this->FinalizeTopology();
