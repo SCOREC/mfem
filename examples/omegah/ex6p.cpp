@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
       x.Save(sol_ofs);
     }
    // 17. Save data in the ParaView format
-   ParaViewDataCollection paraview_dc("Example5P", pmesh);
+   ParaViewDataCollection paraview_dc("Example6P", pmesh);
    paraview_dc.SetPrefixPath("CutTriCube");
    paraview_dc.SetLevelsOfDetail(1);
    paraview_dc.SetDataFormat(VTKFormat::BINARY);

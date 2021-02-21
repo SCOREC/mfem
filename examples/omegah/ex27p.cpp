@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/cube_triCut_5k_4p.osh",
+  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
 
@@ -199,17 +199,16 @@ int main(int argc, char *argv[])
    //    with each type of boundary condition. These arrays have an entry
    //    corresponding to each boundary attribute. Placing a '1' in entry i
    //    marks attribute i+1 as being active, '0' is inactive.
+   auto max_attr = pmesh->bdr_attributes.Size();
+   mfem::out << "attribute size : " << max_attr << endl;
    Array<int> nbc_bdr(pmesh->bdr_attributes.Max());
    Array<int> rbc_bdr(pmesh->bdr_attributes.Max());
    Array<int> dbc_bdr(pmesh->bdr_attributes.Max());
-
-  fprintf(stderr, "ok1\n");
 
    nbc_bdr = 0; nbc_bdr[0] = 1;
    rbc_bdr = 0; rbc_bdr[1] = 1;
    dbc_bdr = 0; dbc_bdr[2] = 1;
 
-  fprintf(stderr, "ok2\n");
    Array<int> ess_tdof_list(0);
    if (h1 && pmesh->bdr_attributes.Size())
    {
@@ -414,6 +413,17 @@ int main(int argc, char *argv[])
       sol_ofs.precision(8);
       u.Save(sol_ofs);
    }
+
+   // 17. Save data in the ParaView format
+   ParaViewDataCollection paraview_dc("Example27P", pmesh);
+   paraview_dc.SetPrefixPath("CutTriCube");
+   paraview_dc.SetLevelsOfDetail(1);
+   paraview_dc.SetDataFormat(VTKFormat::BINARY);
+   paraview_dc.SetHighOrderOutput(false);
+   paraview_dc.SetCycle(0);
+   paraview_dc.SetTime(0.0);
+   paraview_dc.RegisterField("temperature",&u);
+   paraview_dc.Save();
 
    // 17. Send the solution by socket to a GLVis server.
    if (visualization)
