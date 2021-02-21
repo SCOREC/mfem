@@ -98,9 +98,9 @@ int main(int argc, char *argv[])
    bool h1 = true;
    bool visualization = true;
 
-   double mat_val = 1.0;
-   double dbc_val = 0.0;
-   double nbc_val = 1.0;
+   double mat_val = 5.0;
+   double dbc_val = 18.0;
+   double nbc_val = 12.0;
    double rbc_a_val = 1.0; // du/dn + a * u = b
    double rbc_b_val = 1.0;
 
@@ -138,6 +138,11 @@ int main(int argc, char *argv[])
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
+
+  printf("coeffs dbc %f nbc %f mat coef %f vis %d\n", dbc_val, nbc_val,
+          mat_val, visualization);
+
+
    args.Parse();
    if (!args.Good())
    {
@@ -205,9 +210,12 @@ int main(int argc, char *argv[])
    Array<int> rbc_bdr(pmesh->bdr_attributes.Max());
    Array<int> dbc_bdr(pmesh->bdr_attributes.Max());
 
-   nbc_bdr = 0; nbc_bdr[0] = 1;
-   rbc_bdr = 0; rbc_bdr[1] = 1;
-   dbc_bdr = 0; dbc_bdr[2] = 1;
+   //nbc_bdr = 0; dbc_bdr[75] = 1;
+   //dbc_bdr = 0; nbc_bdr[213] = 1; nbc_bdr[23] = 1;
+   nbc_bdr = 0; nbc_bdr[75] = 1;
+   dbc_bdr = 0; dbc_bdr[213] = 1; dbc_bdr[23] = 1;
+   rbc_bdr = 0;
+   //rbc_bdr = 0; rbc_bdr[1] = 1;
 
    Array<int> ess_tdof_list(0);
    if (h1 && pmesh->bdr_attributes.Size())
