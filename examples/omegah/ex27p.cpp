@@ -1,11 +1,6 @@
-//                       MFEM Example 27 - Parallel Version
+//                       MFEM-Omega_h Example 27 - Parallel Version
 //
 // Compile with: make ex27p
-//
-// Sample runs:  mpirun -np 4 ex27p
-//               mpirun -np 4 ex27p -dg
-//               mpirun -np 4 ex27p -dg -dbc 8 -nbc -2
-//               mpirun -np 4 ex27p -rbc-a 1 -rbc-b 8
 //
 // Description:  This example code demonstrates the use of MFEM to define a
 //               simple finite element discretization of the Laplace problem
@@ -16,28 +11,6 @@
 //               Dirichlet, Neumann (both homogeneous and inhomogeneous), Robin,
 //               and Periodic boundary conditions on different portions of a
 //               predefined mesh.
-//
-//               The predefined mesh consists of a rectangle with two holes
-//               removed (see below). The narrow ends of the mesh are connected
-//               to form a Periodic boundary condition. The lower edge (tagged
-//               with attribute 1) receives an inhomogeneous Neumann boundary
-//               condition. A Robin boundary condition is applied to upper edge
-//               (attribute 2). The circular hole on the left (attribute 3)
-//               enforces a Dirichlet boundary condition. Finally, a natural
-//               boundary condition, or homogeneous Neumann BC, is applied to
-//               the circular hole on the right (attribute 4).
-//
-//                    Attribute 3    ^ y  Attribute 2
-//                          \        |      /
-//                       +-----------+-----------+
-//                       |    \_     |     _     |
-//                       |    / \    |    / \    |
-//                    <--+---+---+---+---+---+---+--> x
-//                       |    \_/    |    \_/    |
-//                       |           |      \    |
-//                       +-----------+-----------+       (hole radii are
-//                            /      |        \            adjustable)
-//                    Attribute 1    v    Attribute 4
 //
 //               The boundary conditions are defined as (where u is the solution
 //               field):
@@ -52,9 +25,6 @@
 //               This example highlights the differing implementations of
 //               boundary conditions with continuous and discontinuous Galerkin
 //               formulations of the Laplace problem.
-//
-//               We recommend viewing Examples 1 and 14 before viewing this
-//               example.
 
 #include "mfem.hpp"
 #include <fstream>
@@ -63,6 +33,11 @@
 #include <Omega_h_file.hpp>
 #include <Omega_h_library.hpp>
 #include <Omega_h_mesh.hpp>
+
+#include <Omega_h_adapt.hpp>
+#include <Omega_h_for.hpp>
+#include <Omega_h_metric.hpp>
+#include <Omega_h_timer.hpp>
 
 using namespace std;
 using namespace mfem;
@@ -83,10 +58,76 @@ double IntegrateBC(const ParGridFunction &sol, const Array<int> &bdr_marker,
                    double alpha, double beta, double gamma,
                    double &err);
 
+namespace { // anonymous namespace
+
+/* this function is copied from the file
+ * ugawg_linear.cpp of omega_h source code
+ */
+template <oh::Int dim>
+static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
+  auto coords = mesh->coords();
+  auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
+  auto f = OMEGA_H_LAMBDA(oh::LO v) {
+    auto x = coords[v * dim ];
+    auto y = coords[v * dim + (dim - 2)];
+    auto z = coords[v * dim + (dim - 1)];
+    auto h = oh::Vector<dim>();
+    for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
+    h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y + z*z)));
+    h[0] = (0.001 + 0.198 * std::abs(sqrt(y*y + z*z)));
+    auto m = diagonal(metric_eigenvalues_from_lengths(h));
+    set_symm(target_metrics_w, v, m);
+  };
+  oh::parallel_for(mesh->nverts(), f);
+  mesh->set_tag(oh::VERT, "target_metric", oh::Reals(target_metrics_w));
+}
+
+/* this function is copied from the file
+ * ugawg_linear.cpp of omega_h source code
+ */
+template <oh::Int dim>
+void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
+              const oh::Int myid) {
+  auto world = mesh->comm();
+  mesh->set_parting(OMEGA_H_GHOSTED);
+  auto implied_metrics = get_implied_metrics(mesh);
+  mesh->add_tag(oh::VERT, "metric", oh::symm_ncomps(dim), implied_metrics);
+  mesh->add_tag<oh::Real>(oh::VERT, "target_metric", oh::symm_ncomps(dim));
+  set_target_metric<dim>(mesh, scale);
+  mesh->set_parting(OMEGA_H_ELEM_BASED);
+  mesh->ask_lengths();
+  mesh->ask_qualities();
+  oh::vtk::FullWriter writer;
+  if (vtk_path) {
+    writer = oh::vtk::FullWriter(vtk_path, mesh);
+    writer.write();
+  }
+  auto opts = oh::AdaptOpts(mesh);
+  opts.verbosity = oh::EXTRA_STATS;
+  opts.length_histogram_max = 2.0;
+  opts.max_length_allowed = opts.max_length_desired * 4.0;
+  //opts.max_length_allowed = opts.max_length_desired * 2.0;
+  opts.min_quality_allowed = 0.00001;
+  oh::Now t0 = oh::now();
+  while (approach_metric(mesh, opts)) {
+    adapt(mesh, opts);
+    if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh,
+                      scale);
+    if (vtk_path) writer.write();
+  }
+  oh::Now t1 = oh::now();
+  if (!myid) std::cout << "total time: " << (t1 - t0) << " seconds\n";
+}
+
+} // end anonymous namespace
+
 int main(int argc, char *argv[])
 {
    // 1. Initialize MPI.
    MPI_Session mpi;
+  int num_procs, myid;
+  MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &myid);
    if (!mpi.Root()) { mfem::out.Disable(); mfem::err.Disable(); }
 
    // 2. Parse command-line options.
@@ -182,6 +223,10 @@ int main(int argc, char *argv[])
   oh::binary::read ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
+  int max_iter = 2;
+
+  for (int Itr = 0; Itr < max_iter; Itr++)
+  {
 
    ParMesh *pmesh = new ParOmegaMesh (MPI_COMM_WORLD, &o_mesh);
    int dim = pmesh->Dimension();
@@ -450,6 +495,21 @@ int main(int argc, char *argv[])
 
    // 18. Free the used memory.
    delete fec;
+
+   // 19. Perform adapt
+
+    char Fname[128];
+    sprintf(Fname,
+      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_5k_ex27p.vtk");
+      //"/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
+    //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
+    char iter_str[8];
+    sprintf(iter_str, "_%d", Itr);
+    strcat(Fname, iter_str);
+    puts(Fname);
+
+    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid);
+  } // end adaptation loop
 
    return 0;
 }

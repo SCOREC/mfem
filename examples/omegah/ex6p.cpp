@@ -58,20 +58,19 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
     auto h = oh::Vector<dim>();
     for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
     //h[dim - 1] = 0.001*(0.001 + 0.198 * std::abs(z - 0.5));
-  //h[0] = 1*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z)));
+  //h[0] = 1*(0.001 + 0.198*std::abs(sqrt(y*y + z*z)));
   //h[dim - 1] = 10*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); //4 mins
     //with x fields 
     //h[dim - 1] = 25*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); // 5mins
     //h[dim - 1] = 25*(0.001 + 8 * std::abs(sqrt(x*x + y*y + z*z)));//too long
-    h[dim - 1] = 25*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y + z*z)));//runs
+    //h[dim - 1] = 1*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y)));//runs
     // in 3 mins,20k elems 
     //h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs to
     // give 20k elems
     // h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs
     // to give .5mil elems
     //h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z) - 0.5));
-    //h[dim - 1] = 1.5*(scale + 1)*(0.001 + 0.198 * std::abs(z -
-    //0.5));//original * 1.5
+    h[dim - 1] = (0.001 + 0.198 * std::abs(z - 0.5));//original
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -102,7 +101,7 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
   auto opts = oh::AdaptOpts(mesh);
   opts.verbosity = oh::EXTRA_STATS;
   opts.length_histogram_max = 2.0;
-  opts.max_length_allowed = opts.max_length_desired * 2.0;
+  opts.max_length_allowed = opts.max_length_desired * 4.0;
   //opts.max_length_allowed = opts.max_length_desired * 2.0;
   opts.min_quality_allowed = 0.00001;
   oh::Now t0 = oh::now();
@@ -132,7 +131,8 @@ int main(int argc, char *argv[])
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
   oh::binary::read
-    ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
+    ("/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p.osh",
+    //("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
 
@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
       x.Save(sol_ofs);
     }
    // 17. Save data in the ParaView format
-   ParaViewDataCollection paraview_dc("Example6P", pmesh);
+   ParaViewDataCollection paraview_dc("Example6P_1mil", pmesh);
    paraview_dc.SetPrefixPath("CutTriCube");
    paraview_dc.SetLevelsOfDetail(1);
    paraview_dc.SetDataFormat(VTKFormat::BINARY);
@@ -301,30 +301,6 @@ int main(int argc, char *argv[])
       sout << "solution\n" << *pmesh << x << flush;
     }
 
-/*
-    // print_vtk files with solution
-    // Save mfem meshes using VisitDataCollection
-    const std::string prefix_path = "";
-    std::string meshFname = "cube_cutTriCube.vtk_";
-    meshFname += std::to_string(myid);
-    VisItDataCollection dc(meshFname, pmesh);
-    dc.SetPrefixPath(prefix_path);
-    dc.RegisterField("scalar_gf", &x);
-    //dc.RegisterField("vector_gf", &vectorGF);
-    dc.Save();
-    // Save meshes and grid functions in VTK format
-    std::string fname = meshFname;
-    char f_mfem_mesh [128];
-    sprintf(f_mfem_mesh, "cube_cutTriCube.vtk_%d", myid);
-    std::fstream vtkFs (f_mfem_mesh, std::ios::out);
-
-    puts("writing mesh at \n");
-    puts(fname.c_str());
-
-    const int ref = 0;
-    pmesh->PrintVTK( vtkFs, ref);
-    x.SaveVTK( vtkFs, "scalar_gf", ref);
-*/
     // 16. Field transfer. Scalar solution field and magnitude field for error
     //     estimation are created from the Omega_h mesh.
 
@@ -332,7 +308,8 @@ int main(int argc, char *argv[])
 
     char Fname[128];
     sprintf(Fname,
-      "/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p_zMetric.vtk");
+      //"/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
     //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
