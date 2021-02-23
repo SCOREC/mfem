@@ -36,6 +36,7 @@
 #include <Omega_h_build.hpp>
 #include <Omega_h_for.hpp>
 
+#include "mesh_operators.hpp"
 
 namespace mfem
 {
@@ -63,7 +64,8 @@ public:
             bool fix_orientation = true, const int curved = 0);
 
   // Transfer information about error estimator to Omega_h
-  ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh, ErrorEstimator estimator) {
+  void ErrorEstimatorMFEMtoOmegaH (Omega_h::Mesh* o_mesh, 
+                                   const Vector mfem_err);
 
 /*
   /// Transfer field from MFEM mesh to PUMI mesh [Scalar].

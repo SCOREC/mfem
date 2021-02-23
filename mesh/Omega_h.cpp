@@ -609,22 +609,23 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
 }
 
 // Transfer information about error estimator to Omega_h
-ParOmegaMesh::ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh,
-                                          ErrorEstimator estimator) {
+// takes in omega_h mesh and mfem local element errors
+void ParOmegaMesh::ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh,
+                                          const Vector mfem_err) {
 
   const int nelems = GetNE();
-  const Vector &mfem_err = estimator.GetLocalErrors();
-  MFEM_ASSERT(mfem_err.Size() == NE, "invalid size of local_err");
+  MFEM_ASSERT(mfem_err.Size() == nelems, "invalid size of local_err");
   // create oh-array of estimates on host
   oh::HostWrite<oh::Real> o_error(nelems);
 
   for (int elem = 0; elem < nelems; ++elem) {
-    auto elem_error = local_err(elem);
+    auto elem_error = mfem_err(elem);
     //to-check; mapping of element id
     o_error[elem] = elem_error;
   }
-  mesh.add_tag<Real>(o_mesh->dim(), "error_estimate", 1, o_error.write());
+  o_mesh->add_tag<oh::Real>(o_mesh->dim(), "error_estimate", 1, o_error.write());
 
+  return;
 }
 
 } // end namespace mfem
