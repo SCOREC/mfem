@@ -608,169 +608,23 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   Finalize(refine, fix_orientation);
 }
 
-// Copy the adapted mesh to the original mesh and increase the sequence to be
-// able to Call Update() methods of FESpace, Linear and Bilinear forms.
-/* this is copy of UpdateMesh fn from mesh/pumi.cpp */
-void ParOmegaMesh::UpdateMesh(const ParMesh *AdaptedpMesh)
-{
-   // Destroy the ParMesh data fields.
-   delete pncmesh;
-   pncmesh = NULL;
+// Transfer information about error estimator to Omega_h
+ParOmegaMesh::ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh,
+                                          ErrorEstimator estimator) {
 
-   DeleteFaceNbrData();
+  const int nelems = GetNE();
+  const Vector &mfem_err = estimator.GetLocalErrors();
+  MFEM_ASSERT(mfem_err.Size() == NE, "invalid size of local_err");
+  // create oh-array of estimates on host
+  oh::HostWrite<oh::Real> o_error(nelems);
 
-   for (int i = 0; i < shared_edges.Size(); i++)
-   {
-      FreeElement(shared_edges[i]);
-   }
-   shared_quads.DeleteAll();
-   shared_trias.DeleteAll();
-   shared_edges.DeleteAll();
-   group_svert.Clear();
-   group_sedge.Clear();
-   group_stria.Clear();
-   group_squad.Clear();
-   svert_lvert.DeleteAll();
-   sedge_ledge.DeleteAll();
-   sface_lface.DeleteAll();
+  for (int elem = 0; elem < nelems; ++elem) {
+    auto elem_error = local_err(elem);
+    //to-check; mapping of element id
+    o_error[elem] = elem_error;
+  }
+  mesh.add_tag<Real>(o_mesh->dim(), "error_estimate", 1, o_error.write());
 
-   // Destroy the Mesh data fields.
-   Destroy();
-
-/*
-   // Assuming Dim, spaceDim, geom type is unchanged
-   MFEM_ASSERT(Dim == AdaptedpMesh->Dim, "");
-   MFEM_ASSERT(spaceDim == AdaptedpMesh->spaceDim, "");
-   MFEM_ASSERT(meshgen == AdaptedpMesh->meshgen, "");
-
-   NumOfVertices = AdaptedpMesh->GetNV();
-   NumOfElements = AdaptedpMesh->GetNE();
-   NumOfBdrElements = AdaptedpMesh->GetNBE();
-   NumOfEdges = AdaptedpMesh->GetNEdges();
-   NumOfFaces = AdaptedpMesh->GetNFaces();
-
-   meshgen = AdaptedpMesh->meshgen;
-
-   // Sequence is increased by one to trigger update in FEspace etc.
-   sequence++;
-   last_operation = Mesh::NONE;
-
-   // Duplicate the elements
-   elements.SetSize(NumOfElements);
-   for (int i = 0; i < NumOfElements; i++)
-   {
-      elements[i] = AdaptedpMesh->GetElement(i)->Duplicate(this);
-   }
-
-   // Copy the vertices
-   AdaptedpMesh->vertices.Copy(vertices);
-
-   // Duplicate the boundary
-   boundary.SetSize(NumOfBdrElements);
-   for (int i = 0; i < NumOfBdrElements; i++)
-   {
-      boundary[i] = AdaptedpMesh->GetBdrElement(i)->Duplicate(this);
-   }
-
-   // Copy the element-to-face Table, el_to_face
-   el_to_face = (AdaptedpMesh->el_to_face) ?
-                new Table(*(AdaptedpMesh->el_to_face)) : NULL;
-
-   // Copy the boundary-to-face Array, be_to_face.
-   AdaptedpMesh->be_to_face.Copy(be_to_face);
-
-   // Copy the element-to-edge Table, el_to_edge
-   el_to_edge = (AdaptedpMesh->el_to_edge) ?
-                new Table(*(AdaptedpMesh->el_to_edge)) : NULL;
-
-   // Copy the boudary-to-edge Table, bel_to_edge (3D)
-   bel_to_edge = (AdaptedpMesh->bel_to_edge) ?
-                 new Table(*(AdaptedpMesh->bel_to_edge)) : NULL;
-
-   // Copy the boudary-to-edge Array, be_to_edge (2D)
-   AdaptedpMesh->be_to_edge.Copy(be_to_edge);
-
-   // Duplicate the faces and faces_info.
-   faces.SetSize(AdaptedpMesh->faces.Size());
-   for (int i = 0; i < faces.Size(); i++)
-   {
-      Element *face = AdaptedpMesh->faces[i]; // in 1D the faces are NULL
-      faces[i] = (face) ? face->Duplicate(this) : NULL;
-   }
-   AdaptedpMesh->faces_info.Copy(faces_info);
-
-   // Do NOT copy the element-to-element Table, el_to_el
-   el_to_el = NULL;
-
-   // Do NOT copy the face-to-edge Table, face_edge
-   face_edge = NULL;
-
-   // Copy the edge-to-vertex Table, edge_vertex
-   edge_vertex = (AdaptedpMesh->edge_vertex) ?
-                 new Table(*(AdaptedpMesh->edge_vertex)) : NULL;
-
-   // Copy the attributes and bdr_attributes
-   AdaptedpMesh->attributes.Copy(attributes);
-   AdaptedpMesh->bdr_attributes.Copy(bdr_attributes);
-
-   // PUMI meshes cannot use NURBS meshes.
-   MFEM_VERIFY(AdaptedpMesh->NURBSext == NULL,
-               "invalid adapted mesh: it is a NURBS mesh");
-   NURBSext = NULL;
-
-   // PUMI meshes cannot use NCMesh/ParNCMesh.
-   MFEM_VERIFY(AdaptedpMesh->ncmesh == NULL && AdaptedpMesh->pncmesh == NULL,
-               "invalid adapted mesh: it is a non-conforming mesh");
-   ncmesh = NULL;
-   pncmesh = NULL;
-
-   // Parallel Implications
-   AdaptedpMesh->group_svert.Copy(group_svert);
-   AdaptedpMesh->group_sedge.Copy(group_sedge);
-   group_stria = AdaptedpMesh->group_stria;
-   group_squad = AdaptedpMesh->group_squad;
-   AdaptedpMesh->gtopo.Copy(gtopo);
-
-   MyComm = AdaptedpMesh->MyComm;
-   NRanks = AdaptedpMesh->NRanks;
-   MyRank = AdaptedpMesh->MyRank;
-
-   // Duplicate the shared_edges
-   shared_edges.SetSize(AdaptedpMesh->shared_edges.Size());
-   for (int i = 0; i < shared_edges.Size(); i++)
-   {
-      shared_edges[i] = AdaptedpMesh->shared_edges[i]->Duplicate(this);
-   }
-
-   // Duplicate the shared_trias and shared_quads
-   shared_trias = AdaptedpMesh->shared_trias;
-   shared_quads = AdaptedpMesh->shared_quads;
-
-   // Copy the shared-to-local index Arrays
-   AdaptedpMesh->svert_lvert.Copy(svert_lvert);
-   AdaptedpMesh->sedge_ledge.Copy(sedge_ledge);
-   AdaptedpMesh->sface_lface.Copy(sface_lface);
-
-   // Do not copy face-neighbor data (can be generated if needed)
-   have_face_nbr_data = false;
-
-   // Copy the Nodes as a ParGridFunction, including the FiniteElementCollection
-   // and the FiniteElementSpace (as a ParFiniteElementSpace)
-   if (AdaptedpMesh->Nodes)
-   {
-      FiniteElementSpace *fes = AdaptedpMesh->Nodes->FESpace();
-      const FiniteElementCollection *fec = fes->FEColl();
-      FiniteElementCollection *fec_copy =
-         FiniteElementCollection::New(fec->Name());
-      ParFiniteElementSpace *pfes_copy =
-         new ParFiniteElementSpace(this, fec_copy, fes->GetVDim(),
-                                   fes->GetOrdering());
-      Nodes = new ParGridFunction(pfes_copy);
-      Nodes->MakeOwner(fec_copy);
-      *Nodes = *(AdaptedpMesh->Nodes);
-      own_nodes = 1;
-   }
-*/
 }
 
 } // end namespace mfem

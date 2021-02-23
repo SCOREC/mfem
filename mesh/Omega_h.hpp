@@ -62,12 +62,22 @@ public:
   ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, int refine = 0,
             bool fix_orientation = true, const int curved = 0);
 
+  // Transfer information about error estimator to Omega_h
+  ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh, ErrorEstimator estimator) {
+
+/*
+  /// Transfer field from MFEM mesh to PUMI mesh [Scalar].
+  void FieldMFEMtoPUMI(apf::Mesh2* apf_mesh,
+                       ParGridFunction* grid_pr,
+                       apf::Field* pr_field,
+                       apf::Field* pr_mag_field);
+*/
+
   /// Update the mesh after adaptation.
   void UpdateMesh(const ParMesh *AdaptedpMesh);
 
   virtual ~ParOmegaMesh() {}
 };
-
 
 } // namespace mfem
 
