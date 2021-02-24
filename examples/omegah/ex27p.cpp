@@ -297,7 +297,8 @@ int main(int argc, char *argv[])
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
    //    domain integrator.
    ParBilinearForm a(&fespace);
-   a.AddDomainIntegrator(new DiffusionIntegrator(matCoef));
+   BilinearFormIntegrator *integ = new DiffusionIntegrator(matCoef);
+   a.AddDomainIntegrator(integ);
    if (h1)
    {
       // Add a Mass integrator on the Robin boundary
@@ -496,7 +497,35 @@ int main(int argc, char *argv[])
    // 18. Free the used memory.
    delete fec;
 
-   // 19. Perform adapt
+   /* ### for zz estimator ### */
+   // 19. Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
+   //     with L2 projection in the smoothing step to better handle hanging
+   //     nodes and parallel partitioning. We need to supply a space for the
+   //     discontinuous flux (L2) and a space for the smoothed flux (H(div) is
+   //     used here).
+   int order = 1;
+   int sdim = pmesh->SpaceDimension();
+  printf("space dim %d\n", sdim);
+
+   L2_FECollection flux_fec(order, dim);
+   ParFiniteElementSpace flux_fes(pmesh, &flux_fec, sdim);
+   //RT_FECollection smooth_flux_fec(order-1, dim);
+   //ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec);
+   // Another possible option for the smoothed flux space:
+   H1_FECollection smooth_flux_fec(order, dim);
+   ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
+   L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
+
+/*
+   FiniteElementSpace flux_fespace(pmesh, fec, sdim);
+   ZienkiewiczZhuEstimator estimator(*integ, u, flux_fespace);
+   estimator.SetAnisotropic();
+*/
+   const Vector mfem_err = estimator.GetLocalErrors();
+   ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
+   pOmesh->ErrorEstimatorMFEMtoOmegaH (&o_mesh, mfem_err);
+
+   // 20. Perform adapt
 
     char Fname[128];
     sprintf(Fname,
@@ -509,6 +538,7 @@ int main(int argc, char *argv[])
     puts(Fname);
 
     if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid);
+
   } // end adaptation loop
 
    return 0;

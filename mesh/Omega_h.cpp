@@ -618,6 +618,8 @@ void ParOmegaMesh::ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh,
   // create oh-array of estimates on host
   oh::HostWrite<oh::Real> o_error(nelems);
 
+  printf("mfem elems %d, oh elems %d\n", nelems, o_mesh->nelems());
+
   for (int elem = 0; elem < nelems; ++elem) {
     auto elem_error = mfem_err(elem);
     //to-check; mapping of element id

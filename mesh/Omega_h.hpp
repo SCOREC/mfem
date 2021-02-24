@@ -67,14 +67,6 @@ public:
   void ErrorEstimatorMFEMtoOmegaH (Omega_h::Mesh* o_mesh, 
                                    const Vector mfem_err);
 
-/*
-  /// Transfer field from MFEM mesh to PUMI mesh [Scalar].
-  void FieldMFEMtoPUMI(apf::Mesh2* apf_mesh,
-                       ParGridFunction* grid_pr,
-                       apf::Field* pr_field,
-                       apf::Field* pr_mag_field);
-*/
-
   /// Update the mesh after adaptation.
   void UpdateMesh(const ParMesh *AdaptedpMesh);
 
