@@ -35,6 +35,7 @@
 #include <Omega_h_comm.hpp>
 #include <Omega_h_build.hpp>
 #include <Omega_h_for.hpp>
+#include <Omega_h_scalar.hpp>
 
 #include "mesh_operators.hpp"
 
@@ -64,8 +65,11 @@ public:
             bool fix_orientation = true, const int curved = 0);
 
   // Transfer information about error estimator to Omega_h
-  void ErrorEstimatorMFEMtoOmegaH (Omega_h::Mesh* o_mesh, 
-                                   const Vector mfem_err);
+  void ElementFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, const Vector
+                                mfem_field, const int dim, std::string const &name);
+
+  // Transfer tag from omega_h element to omega_h vertex
+  void ProjectErrorElementtoVertex (Omega_h::Mesh* o_mesh, std::string const &name);
 
   /// Update the mesh after adaptation.
   void UpdateMesh(const ParMesh *AdaptedpMesh);

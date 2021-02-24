@@ -31,6 +31,7 @@
 #include "Omega_h_element.hpp"
 #include "Omega_h_mark.hpp"
 #include "Omega_h_atomics.hpp"
+#include "Omega_h_metric.hpp"
 
 namespace oh = Omega_h;
 
@@ -608,24 +609,54 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   Finalize(refine, fix_orientation);
 }
 
-// Transfer information about error estimator to Omega_h
-// takes in omega_h mesh and mfem local element errors
-void ParOmegaMesh::ErrorEstimatorMFEMtoOmegaH (oh::Mesh* o_mesh,
-                                          const Vector mfem_err) {
+// Transfer information about scalar field to Omega_h
+// takes in omega_h mesh and mfem local field vector
+void ParOmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
+                const Vector mfem_field, const int dim,
+                std::string const &name) {
 
-  const int nelems = GetNE();
-  MFEM_ASSERT(mfem_err.Size() == nelems, "invalid size of local_err");
-  // create oh-array of estimates on host
-  oh::HostWrite<oh::Real> o_error(nelems);
+  //TODO verify mapping
 
-  printf("mfem elems %d, oh elems %d\n", nelems, o_mesh->nelems());
+  const int nents = o_mesh->nents(dim);
+  MFEM_ASSERT(mfem_field.Size() == nents, "invalid size of local field");
+  oh::HostWrite<oh::Real> o_field(nents);
 
-  for (int elem = 0; elem < nelems; ++elem) {
-    auto elem_error = mfem_err(elem);
-    //to-check; mapping of element id
-    o_error[elem] = elem_error;
+  for (int ent = 0; ent < nents; ++ent) {
+    o_field[ent] = mfem_field(ent);
   }
-  o_mesh->add_tag<oh::Real>(o_mesh->dim(), "error_estimate", 1, o_error.write());
+  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
+  //o_mesh->add_tag<oh::Real>(dim, "mfem_field", 1, o_field.write());
+
+  return;
+}
+
+// Transfer tag from omega_h element to omega_h vertex
+void ParOmegaMesh::ProjectErrorElementtoVertex (oh::Mesh* o_mesh,
+                std::string const &name) {
+
+  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
+  auto ncomps = oh::divide_no_remainder(elem_field.size(), o_mesh->nelems());
+  auto vertex_field = oh::project_metrics(o_mesh, elem_field);
+  o_mesh->add_tag(oh::VERT, name, ncomps, vertex_field);
+  //TODO verify with results or write new function started below
+  
+/*
+  auto vtx2elem = o_mesh->ask_up(0, o_mesh->dim());
+  auto ve2e = vtx2elem.ab2b;
+  auto v2ve = vtx2elem.a2ab;
+
+  auto get_vtx_field = OMEGA_H_LAMBDA(LO v) {
+    auto n_adj_elems = v2ve[v+1] - v2ve[v];
+    for v2ve[v] //get index where adjacent elem id is stored
+    //use this adjacentt elem id to  
+    //average error value
+  };
+  parallel_for(o_mesh->nverts(), get_vtx_field, "get_vtx_field");
+  // call sync
+
+  //add tag
+  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
+*/
 
   return;
 }

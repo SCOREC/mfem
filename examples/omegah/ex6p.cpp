@@ -115,6 +115,40 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
   if (!myid) std::cout << "total time: " << (t1 - t0) << " seconds\n";
 }
 
+template <oh::Int dim>
+void run_case_givenMetric(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
+              const oh::Int myid) {
+  auto world = mesh->comm();
+  mesh->set_parting(OMEGA_H_GHOSTED);
+  auto implied_metrics = get_implied_metrics(mesh);
+  //mesh->add_tag(oh::VERT, "metric", oh::symm_ncomps(dim), implied_metrics);
+  mesh->add_tag<oh::Real>(oh::VERT, "target_metric", oh::symm_ncomps(dim));
+  //set_target_metric<dim>(mesh, scale);
+  mesh->set_parting(OMEGA_H_ELEM_BASED);
+  mesh->ask_lengths();
+  mesh->ask_qualities();
+  oh::vtk::FullWriter writer;
+  if (vtk_path) {
+    writer = oh::vtk::FullWriter(vtk_path, mesh);
+    writer.write();
+  }
+  auto opts = oh::AdaptOpts(mesh);
+  opts.verbosity = oh::EXTRA_STATS;
+  opts.length_histogram_max = 2.0;
+  opts.max_length_allowed = opts.max_length_desired * 2.0;
+  //opts.max_length_allowed = opts.max_length_desired * 2.0;
+  opts.min_quality_allowed = 0.00001;
+  oh::Now t0 = oh::now();
+  while (approach_metric(mesh, opts)) {
+    adapt(mesh, opts);
+    if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh,
+                      scale);
+    if (vtk_path) writer.write();
+  }
+  oh::Now t1 = oh::now();
+  if (!myid) std::cout << "total time: " << (t1 - t0) << " seconds\n";
+}
+
 } // end anonymous namespace
 
 int main(int argc, char *argv[])
@@ -284,16 +318,6 @@ int main(int argc, char *argv[])
       sol_ofs.precision(8);
       x.Save(sol_ofs);
     }
-   // 17. Save data in the ParaView format
-   ParaViewDataCollection paraview_dc("Example6P_1mil", pmesh);
-   paraview_dc.SetPrefixPath("CutTriCube");
-   paraview_dc.SetLevelsOfDetail(1);
-   paraview_dc.SetDataFormat(VTKFormat::BINARY);
-   paraview_dc.SetHighOrderOutput(false);
-   paraview_dc.SetCycle(0);
-   paraview_dc.SetTime(0.0);
-   paraview_dc.RegisterField("temperature",&x);
-   paraview_dc.Save();
 
     // 15. Send the above data by socket to a GLVis server. Use the "n" and "b"
     //     keys in GLVis to visualize the displacements.
@@ -328,15 +352,28 @@ int main(int argc, char *argv[])
 */
    const Vector mfem_err = estimator.GetLocalErrors();
    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
-   pOmesh->ErrorEstimatorMFEMtoOmegaH (&o_mesh, mfem_err);
+   pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "metric");
+   pOmesh->ProjectErrorElementtoVertex (&o_mesh, "metric");
+   //pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "mfem_field");
+   //pOmesh->ProjectErrorElementtoVertex (&o_mesh, "mfem_field");
 
-
-    // 17. Perform adapt
+   // 17. Save data in the ParaView format
+   ParaViewDataCollection paraview_dc("Example6P_5k", pmesh);
+   paraview_dc.SetPrefixPath("CutTriCube");
+   paraview_dc.SetLevelsOfDetail(1);
+   paraview_dc.SetDataFormat(VTKFormat::BINARY);
+   paraview_dc.SetHighOrderOutput(false);
+   paraview_dc.SetCycle(0);
+   paraview_dc.SetTime(0.0);
+   paraview_dc.RegisterField("temperature",&x);
+   //paraview_dc.RegisterField("estimator",&mfem_err);//input must be gf
+   paraview_dc.Save();
+    // 18. Perform adapt
 
     char Fname[128];
     sprintf(Fname,
       //"/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p_zMetric.vtk");
-      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p_mfemMetric.vtk");
     //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
@@ -344,9 +381,10 @@ int main(int argc, char *argv[])
     puts(Fname);
 
     //run_case<3>(&o_mesh, Fname, Itr, myid);
+    run_case_givenMetric<3>(&o_mesh, Fname, Itr, myid);
     oh::vtk::write_parallel(Fname, &o_mesh, false);
 
-    // 18. Update the FiniteElementSpace, GridFunction, and bilinear form.
+    // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
     x.Update();
     x = 0.0;
@@ -354,7 +392,7 @@ int main(int argc, char *argv[])
     a->Update();
     b->Update();
 
-    // 19. Free the used memory.
+    // 20. Free the used memory.
     delete a;
     delete b;
     delete fespace;
