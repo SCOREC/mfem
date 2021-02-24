@@ -131,8 +131,8 @@ int main(int argc, char *argv[])
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
   oh::binary::read
-    ("/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p.osh",
-    //("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
+    //("/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p.osh",
+    ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
   //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
                     lib.world(), &o_mesh);
 
@@ -216,7 +216,9 @@ int main(int argc, char *argv[])
   //     corresponding to the Laplacian operator -Delta, by adding the
   //     Diffusion domain integrator.
   ParBilinearForm *a = new ParBilinearForm(fespace);
-  a->AddDomainIntegrator(new DiffusionIntegrator(one));
+  BilinearFormIntegrator *integ = new DiffusionIntegrator(one);
+  a->AddDomainIntegrator(integ);
+  //a->AddDomainIntegrator(new DiffusionIntegrator(one));
 
   // 11. Assemble the parallel bilinear form and the corresponding linear
   //     system, applying any necessary transformations such as: parallel
@@ -301,22 +303,48 @@ int main(int argc, char *argv[])
       sout << "solution\n" << *pmesh << x << flush;
     }
 
-    // 16. Field transfer. Scalar solution field and magnitude field for error
-    //     estimation are created from the Omega_h mesh.
+   /* ### for zz estimator ### */
+   // 16. Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
+   //     with L2 projection in the smoothing step to better handle hanging
+   //     nodes and parallel partitioning. We need to supply a space for the
+   //     discontinuous flux (L2) and a space for the smoothed flux (H(div) is
+   //     used here).
+   int sdim = pmesh->SpaceDimension();
+  printf("space dim %d\n", sdim);
+
+   L2_FECollection flux_fec(order, dim);
+   ParFiniteElementSpace flux_fes(pmesh, &flux_fec, sdim);
+   //RT_FECollection smooth_flux_fec(order-1, dim);
+   //ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec);
+   // Another possible option for the smoothed flux space:
+   H1_FECollection smooth_flux_fec(order, dim);
+   ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
+   L2ZienkiewiczZhuEstimator estimator(*integ, x, flux_fes, smooth_flux_fes);
+
+/*
+   FiniteElementSpace flux_fespace(pmesh, fec, sdim);
+   ZienkiewiczZhuEstimator estimator(*integ, u, flux_fespace);
+   estimator.SetAnisotropic();
+*/
+   const Vector mfem_err = estimator.GetLocalErrors();
+   ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
+   pOmesh->ErrorEstimatorMFEMtoOmegaH (&o_mesh, mfem_err);
+
 
     // 17. Perform adapt
 
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p_zMetric.vtk");
-      //"/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
+      //"/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p_zMetric.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.vtk");
     //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);
     puts(Fname);
 
-    run_case<3>(&o_mesh, Fname, Itr, myid);
+    //run_case<3>(&o_mesh, Fname, Itr, myid);
+    oh::vtk::write_parallel(Fname, &o_mesh, false);
 
     // 18. Update the FiniteElementSpace, GridFunction, and bilinear form.
     fespace->Update();
