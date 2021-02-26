@@ -17,6 +17,7 @@ if (MFEM_USE_MPI)
     ex1p.cpp
     ex6p.cpp
     ex27p.cpp
+    ex2p.cpp
   )
 endif()
 
@@ -46,6 +47,7 @@ set(EX1_TEST_NP 1)
 set(EX1P_TEST_NP 2)
 set(EX6P_TEST_NP 4)
 set(EX27P_TEST_NP 4)
+set(EX2P_TEST_NP 4)
 
 # Add the tests: one test per source file.
 foreach(SRC_FILE ${OMEGAH_EXAMPLES_SRCS})
