@@ -64,17 +64,25 @@ namespace { // anonymous namespace
  * ugawg_linear.cpp of omega_h source code
  */
 template <oh::Int dim>
-static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
+static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
+  *pOmesh) {
   auto coords = mesh->coords();
-  auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
+  auto target_metrics_w = oh::Write<oh::Real>
+    (mesh->nverts() * oh::symm_ncomps(dim));
+  auto Ezz_error = mesh->get_array<oh::Real>(3, "zz_error");
+  printf("elem tag ok\n");
+  pOmesh->ProjectErrorElementtoVertex (mesh, "zz_error");
+  auto zz_error = mesh->get_array<oh::Real>(0, "zz_error");
+  printf("vtx tag ok\n");
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
     auto x = coords[v * dim ];
     auto y = coords[v * dim + (dim - 2)];
     auto z = coords[v * dim + (dim - 1)];
     auto h = oh::Vector<dim>();
-    for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
-    h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y + z*z)));
-    h[0] = (0.001 + 0.198 * std::abs(sqrt(y*y + z*z)));
+    auto vtxError = zz_error[v];
+    for (oh::Int i = 0; i < dim; ++i)
+      h[i] = 0.0005/(std::abs((vtxError)));
+      //h[i] = 0.001 + 650* std::abs((vtxError)); // error small-->fine mesh
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -87,13 +95,13 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
  */
 template <oh::Int dim>
 void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
-              const oh::Int myid) {
+              const oh::Int myid, ParOmegaMesh *pOmesh) {
   auto world = mesh->comm();
   mesh->set_parting(OMEGA_H_GHOSTED);
   auto implied_metrics = get_implied_metrics(mesh);
   mesh->add_tag(oh::VERT, "metric", oh::symm_ncomps(dim), implied_metrics);
   mesh->add_tag<oh::Real>(oh::VERT, "target_metric", oh::symm_ncomps(dim));
-  set_target_metric<dim>(mesh, scale);
+  set_target_metric<dim>(mesh, scale, pOmesh);
   mesh->set_parting(OMEGA_H_ELEM_BASED);
   mesh->ask_lengths();
   mesh->ask_qualities();
@@ -108,11 +116,12 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
   opts.max_length_allowed = opts.max_length_desired * 4.0;
   //opts.max_length_allowed = opts.max_length_desired * 2.0;
   opts.min_quality_allowed = 0.00001;
+  opts.xfer_opts.type_map["zz_error"] = OMEGA_H_POINTWISE;
   oh::Now t0 = oh::now();
   while (approach_metric(mesh, opts)) {
     adapt(mesh, opts);
     if (mesh->has_tag(oh::VERT, "target_metric")) set_target_metric<dim>(mesh,
-                      scale);
+                      scale, pOmesh);
     if (vtk_path) writer.write();
   }
   oh::Now t1 = oh::now();
@@ -131,13 +140,12 @@ int main(int argc, char *argv[])
    if (!mpi.Root()) { mfem::out.Disable(); mfem::err.Disable(); }
 
    // 2. Parse command-line options.
-   int ser_ref_levels = 2;
-   int par_ref_levels = 1;
+   int par_ref_levels = 0;
    int order = 1;
    double sigma = -1.0;
    double kappa = -1.0;
    bool h1 = true;
-   bool visualization = true;
+   bool visualization = false;
 
    double mat_val = 5.0;
    double dbc_val = 18.0;
@@ -145,77 +153,8 @@ int main(int argc, char *argv[])
    double rbc_a_val = 1.0; // du/dn + a * u = b
    double rbc_b_val = 1.0;
 
-   OptionsParser args(argc, argv);
-   args.AddOption(&h1, "-h1", "--continuous", "-dg", "--discontinuous",
-                  "Select continuous \"H1\" or discontinuous \"DG\" basis.");
-   args.AddOption(&order, "-o", "--order",
-                  "Finite element order (polynomial degree) or -1 for"
-                  " isoparametric space.");
-   args.AddOption(&sigma, "-s", "--sigma",
-                  "One of the two DG penalty parameters, typically +1/-1."
-                  " See the documentation of class DGDiffusionIntegrator.");
-   args.AddOption(&kappa, "-k", "--kappa",
-                  "One of the two DG penalty parameters, should be positive."
-                  " Negative values are replaced with (order+1)^2.");
-   args.AddOption(&ser_ref_levels, "-rs", "--refine-serial",
-                  "Number of times to refine the mesh uniformly in serial.");
-   args.AddOption(&par_ref_levels, "-rp", "--refine-parallel",
-                  "Number of times to refine the mesh uniformly in parallel.");
-   args.AddOption(&mat_val, "-mat", "--material-value",
-                  "Constant value for material coefficient "
-                  "in the Laplace operator.");
-   args.AddOption(&dbc_val, "-dbc", "--dirichlet-value",
-                  "Constant value for Dirichlet Boundary Condition.");
-   args.AddOption(&nbc_val, "-nbc", "--neumann-value",
-                  "Constant value for Neumann Boundary Condition.");
-   args.AddOption(&rbc_a_val, "-rbc-a", "--robin-a-value",
-                  "Constant 'a' value for Robin Boundary Condition: "
-                  "du/dn + a * u = b.");
-   args.AddOption(&rbc_b_val, "-rbc-b", "--robin-b-value",
-                  "Constant 'b' value for Robin Boundary Condition: "
-                  "du/dn + a * u = b.");
-   args.AddOption(&a_, "-a", "--radius",
-                  "Radius of holes in the mesh.");
-   args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
-                  "--no-visualization",
-                  "Enable or disable GLVis visualization.");
-
   printf("coeffs dbc %f nbc %f mat coef %f vis %d\n", dbc_val, nbc_val,
           mat_val, visualization);
-
-
-   args.Parse();
-   if (!args.Good())
-   {
-      args.PrintUsage(mfem::out);
-      return 1;
-   }
-   if (kappa < 0 && !h1)
-   {
-      kappa = (order+1)*(order+1);
-   }
-   args.PrintOptions(mfem::out);
-
-   if (a_ < 0.01)
-   {
-      mfem::out << "Hole radius too small, resetting to 0.01.\n";
-      a_ = 0.01;
-   }
-   if (a_ > 0.49)
-   {
-      mfem::out << "Hole radius too large, resetting to 0.49.\n";
-      a_ = 0.49;
-   }
-
-   // 3. Construct the (serial) mesh and refine it if requested.
-   //Mesh *mesh = GenerateSerialMesh(ser_ref_levels);
-
-   // 4. Define a parallel mesh by a partitioning of the serial mesh. Refine
-   //    this mesh further in parallel to increase the resolution. Once the
-   //    parallel mesh is defined, the serial mesh can be deleted.
-   //ParMesh pmesh(MPI_COMM_WORLD, *mesh);
-   //delete mesh;
-    
 
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
@@ -239,8 +178,9 @@ int main(int argc, char *argv[])
    //    use either continuous Lagrange finite elements or discontinuous
    //    Galerkin finite elements of the specified order.
    FiniteElementCollection *fec =
-      h1 ? (FiniteElementCollection*)new H1_FECollection(order, dim) :
-      (FiniteElementCollection*)new DG_FECollection(order, dim);
+      (FiniteElementCollection*)new H1_FECollection(order, dim);
+      //h1 ? (FiniteElementCollection*)new H1_FECollection(order, dim) :
+      //(FiniteElementCollection*)new DG_FECollection(order, dim);
    ParFiniteElementSpace fespace(pmesh, fec);
    HYPRE_Int size = fespace.GlobalTrueVSize();
    mfem::out << "Number of finite element unknowns: " << size << endl;
@@ -255,12 +195,9 @@ int main(int argc, char *argv[])
    Array<int> rbc_bdr(pmesh->bdr_attributes.Max());
    Array<int> dbc_bdr(pmesh->bdr_attributes.Max());
 
-   //nbc_bdr = 0; dbc_bdr[75] = 1;
-   //dbc_bdr = 0; nbc_bdr[213] = 1; nbc_bdr[23] = 1;
    nbc_bdr = 0; nbc_bdr[75] = 1;
    dbc_bdr = 0; dbc_bdr[213] = 1; dbc_bdr[23] = 1;
    rbc_bdr = 0;
-   //rbc_bdr = 0; rbc_bdr[1] = 1;
 
    Array<int> ess_tdof_list(0);
    if (h1 && pmesh->bdr_attributes.Size())
@@ -468,6 +405,41 @@ int main(int argc, char *argv[])
       u.Save(sol_ofs);
    }
 
+   // 19. Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
+   //     with L2 projection in the smoothing step to better handle hanging
+   //     nodes and parallel partitioning. We need to supply a space for the
+   //     discontinuous flux (L2) and a space for the smoothed flux (H(div) is
+   //     used here).
+   int sdim = pmesh->SpaceDimension();
+  printf("space dim %d\n", sdim);
+
+   L2_FECollection flux_fec(order, dim);
+   ParFiniteElementSpace flux_fes(pmesh, &flux_fec, sdim);
+   //RT_FECollection smooth_flux_fec(order-1, dim);
+   //ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec);
+   // Another possible option for the smoothed flux space:
+   H1_FECollection smooth_flux_fec(order, dim);
+   ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
+   L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
+
+   //FiniteElementSpace flux_fespace(pmesh, fec, sdim);
+   //ZienkiewiczZhuEstimator estimator(*integ, u, flux_fespace);
+   //estimator.SetAnisotropic();
+
+   const Vector mfem_err = estimator.GetLocalErrors();
+   ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
+   pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
+   pOmesh->ProjectErrorElementtoVertex (&o_mesh, "zz_error");
+
+   // 17. Save data in the ParaView format
+  //create gridfunction from estimator
+  /* the next 4 lines were suggested by morteza */
+  FiniteElementCollection *errorfec = new L2_FECollection(0, dim);
+  ParFiniteElementSpace errorfespace(pmesh, errorfec);
+  ParGridFunction l2errors(&errorfespace);
+  l2errors = estimator.GetLocalErrors();
+  /* */
+
    // 17. Save data in the ParaView format
    ParaViewDataCollection paraview_dc("Example27P", pmesh);
    paraview_dc.SetPrefixPath("CutTriCube");
@@ -477,6 +449,7 @@ int main(int argc, char *argv[])
    paraview_dc.SetCycle(0);
    paraview_dc.SetTime(0.0);
    paraview_dc.RegisterField("temperature",&u);
+   paraview_dc.RegisterField("zzErrors",&l2errors);
    paraview_dc.Save();
 
    // 17. Send the solution by socket to a GLVis server.
@@ -497,34 +470,6 @@ int main(int argc, char *argv[])
    // 18. Free the used memory.
    delete fec;
 
-   /* ### for zz estimator ### */
-   // 19. Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
-   //     with L2 projection in the smoothing step to better handle hanging
-   //     nodes and parallel partitioning. We need to supply a space for the
-   //     discontinuous flux (L2) and a space for the smoothed flux (H(div) is
-   //     used here).
-   int order = 1;
-   int sdim = pmesh->SpaceDimension();
-  printf("space dim %d\n", sdim);
-
-   L2_FECollection flux_fec(order, dim);
-   ParFiniteElementSpace flux_fes(pmesh, &flux_fec, sdim);
-   //RT_FECollection smooth_flux_fec(order-1, dim);
-   //ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec);
-   // Another possible option for the smoothed flux space:
-   H1_FECollection smooth_flux_fec(order, dim);
-   ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
-   L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
-
-/*
-   FiniteElementSpace flux_fespace(pmesh, fec, sdim);
-   ZienkiewiczZhuEstimator estimator(*integ, u, flux_fespace);
-   estimator.SetAnisotropic();
-*/
-   const Vector mfem_err = estimator.GetLocalErrors();
-   ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
-   pOmesh->ErrorEstimatorMFEMtoOmegaH (&o_mesh, mfem_err);
-
    // 20. Perform adapt
 
     char Fname[128];
@@ -537,7 +482,8 @@ int main(int argc, char *argv[])
     strcat(Fname, iter_str);
     puts(Fname);
 
-    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid);
+    printf("Itr = %d\n", Itr);
+    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
 
   } // end adaptation loop
 

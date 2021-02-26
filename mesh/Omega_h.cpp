@@ -618,6 +618,8 @@ void ParOmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
   //TODO verify mapping
 
   const int nents = o_mesh->nents(dim);
+  if(mfem_field.Size() != nents) 
+    fprintf(stderr, "field size = %d, nents=%d \n", mfem_field.Size(), nents);
   MFEM_ASSERT(mfem_field.Size() == nents, "invalid size of local field");
   oh::HostWrite<oh::Real> o_field(nents);
 
@@ -630,33 +632,41 @@ void ParOmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
   return;
 }
 
-// Transfer tag from omega_h element to omega_h vertex
+// Transfer tag from omega_h element to omega_h vertex by averaging
 void ParOmegaMesh::ProjectErrorElementtoVertex (oh::Mesh* o_mesh,
                 std::string const &name) {
 
-  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
+/*
   auto ncomps = oh::divide_no_remainder(elem_field.size(), o_mesh->nelems());
   auto vertex_field = oh::project_metrics(o_mesh, elem_field);
   o_mesh->add_tag(oh::VERT, name, ncomps, vertex_field);
-  //TODO verify with results or write new function started below
+*/
   
-/*
+  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
   auto vtx2elem = o_mesh->ask_up(0, o_mesh->dim());
   auto ve2e = vtx2elem.ab2b;
   auto v2ve = vtx2elem.a2ab;
+  oh::Write<oh::Real> vtx_field(o_mesh->nverts(), 0);
 
-  auto get_vtx_field = OMEGA_H_LAMBDA(LO v) {
-    auto n_adj_elems = v2ve[v+1] - v2ve[v];
-    for v2ve[v] //get index where adjacent elem id is stored
-    //use this adjacentt elem id to  
+  auto get_vtx_field = OMEGA_H_LAMBDA(oh::LO v) {
+    auto start_index = v2ve[v];
+    auto end_index = v2ve[v+1];
+    //get index where adjacent elem id is stored
+    for (oh::LO index = start_index; index < end_index; ++index) {
+      //get the adjacent elem id
+      auto elem = ve2e[index];
+      //get field of adjacent elem
+      vtx_field[v] += elem_field[elem];
+    }
     //average error value
+    vtx_field[v] = vtx_field[v]/(end_index - start_index);
   };
-  parallel_for(o_mesh->nverts(), get_vtx_field, "get_vtx_field");
-  // call sync
+  oh::parallel_for(o_mesh->nverts(), get_vtx_field, "get_vtx_field");
 
   //add tag
-  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
-*/
+  oh::Read<oh::Real> vtx_field_r(vtx_field);
+  o_mesh->add_tag<oh::Real>(0, name, 1, vtx_field_r);
+  o_mesh->sync_tag(0, name);
 
   return;
 }
