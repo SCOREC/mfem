@@ -1,15 +1,14 @@
-//                       MFEM-Omega_h Example 27 - Parallel Version
+//                       MFEM-Omega_h Example 2 - Parallel Version
 //
-// Compile with: make ex27p
-//
-// Description:  This example code demonstrates the use of MFEM to define a
-//               simple finite element discretization of the Laplace problem
-//               -Delta u = 0 with a variety of boundary conditions.
+// Description:  In this example, we define a simple finite element
+//               discretization of the Laplace problem -Delta u = 0
+//               on a unit box model with one corner cut out and a triangular
+//               hole through the body.
 //
 //               Specifically, we discretize using a FE space of the specified
-//               order using a continuous or discontinuous space. We then apply
-//               Dirichlet, Neumann (both homogeneous and inhomogeneous), Robin,
-//               and Periodic boundary conditions on different portions of a
+//               order using a continuous space. We then apply
+//               Dirichlet, Neumann (homogeneous),
+//               boundary conditions on different portions of a
 //               predefined mesh.
 //
 //               The boundary conditions are defined as (where u is the solution
@@ -18,8 +17,9 @@
 //                  Dirichlet: u = d
 //                  Neumann:   n.Grad(u) = g
 //
-//               The user can adjust the values of 'd', 'g', with
-//               command line options.
+//               The user can adjust the values of 'd', 'g'. Here d is taken
+//               as a function of x for face along x axis and function of y
+//               for two faces along y axis. 
 
 #include "mfem.hpp"
 #include <fstream>
@@ -70,7 +70,8 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.001/(std::abs((vtxError)));
+      h[i] = 0.000175/(std::abs((vtxError)));// 1k to 1.3 mil, 895s, 4p
+      //h[i] = 0.0005/(std::abs((vtxError)));//1k to 51k, 200s, 4p
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -230,7 +231,6 @@ int main(int argc, char *argv[])
     H1_FECollection smooth_flux_fec(order, dim);
     ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
     L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
-
     const Vector mfem_err = estimator.GetLocalErrors();
     ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
@@ -246,7 +246,7 @@ int main(int argc, char *argv[])
     /* */
 
     // 17. Save data in the ParaView format
-    ParaViewDataCollection paraview_dc("Example2P", pmesh);
+    ParaViewDataCollection paraview_dc("Example2P_mil", pmesh);
     paraview_dc.SetPrefixPath("CutTriCube");
     paraview_dc.SetLevelsOfDetail(1);
     paraview_dc.SetDataFormat(VTKFormat::BINARY);
@@ -264,7 +264,7 @@ int main(int argc, char *argv[])
 
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p_1mil.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);

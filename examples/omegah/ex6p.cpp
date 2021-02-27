@@ -52,6 +52,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>(mesh->nverts() * oh::symm_ncomps(dim));
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
+    //3d mesh
     auto x = coords[v * dim ];
     auto y = coords[v * dim + (dim - 2)];
     auto z = coords[v * dim + (dim - 1)];
@@ -358,6 +359,16 @@ int main(int argc, char *argv[])
    //pOmesh->ProjectErrorElementtoVertex (&o_mesh, "mfem_field");
 
    // 17. Save data in the ParaView format
+
+  //create gridfunction from estimator
+  /* the next 4 lines were suggested by morteza */
+  FiniteElementCollection *errorfec = new L2_FECollection(0, dim);
+  ParFiniteElementSpace errorfespace(pmesh, errorfec);
+  ParGridFunction l2errors(&errorfespace);
+  l2errors = estimator.GetLocalErrors();
+  /* */
+
+
    ParaViewDataCollection paraview_dc("Example6P_5k", pmesh);
    paraview_dc.SetPrefixPath("CutTriCube");
    paraview_dc.SetLevelsOfDetail(1);
@@ -366,7 +377,7 @@ int main(int argc, char *argv[])
    paraview_dc.SetCycle(0);
    paraview_dc.SetTime(0.0);
    paraview_dc.RegisterField("temperature",&x);
-   //paraview_dc.RegisterField("estimator",&mfem_err);//input must be gf
+   paraview_dc.RegisterField("zzErrors",&l2errors);
    paraview_dc.Save();
     // 18. Perform adapt
 
@@ -381,7 +392,7 @@ int main(int argc, char *argv[])
     puts(Fname);
 
     //run_case<3>(&o_mesh, Fname, Itr, myid);
-    run_case_givenMetric<3>(&o_mesh, Fname, Itr, myid);
+    //run_case_givenMetric<3>(&o_mesh, Fname, Itr, myid);
     oh::vtk::write_parallel(Fname, &o_mesh, false);
 
     // 19. Update the FiniteElementSpace, GridFunction, and bilinear form.
