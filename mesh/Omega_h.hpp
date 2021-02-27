@@ -69,10 +69,10 @@ public:
                                 mfem_field, const int dim, std::string const &name);
 
   // Transfer tag from omega_h element to omega_h vertex
-  void ProjectErrorElementtoVertex (Omega_h::Mesh* o_mesh, std::string const &name);
+  void ProjectFieldElementtoVertex (Omega_h::Mesh* o_mesh, std::string const &name);
 
-  /// Update the mesh after adaptation.
-  void UpdateMesh(const ParMesh *AdaptedpMesh);
+  // Average element fields using neighbouring elements across faces
+  void SmoothElementField (Omega_h::Mesh* o_mesh, std::string const &name);
 
   virtual ~ParOmegaMesh() {}
 };
