@@ -60,7 +60,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>
     (mesh->nverts() * oh::symm_ncomps(dim));
-  pOmesh->ProjectErrorElementtoVertex (mesh, "zz_error");
+  pOmesh->ProjectFieldElementtoVertex (mesh, "zz_error");
   auto zz_error = mesh->get_array<oh::Real> (0, "zz_error");
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
     auto x = coords[v*dim];
@@ -69,7 +69,9 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.0001/(std::abs((vtxError)));//1.5mil 1770s
+      h[i] = 0.001/std::sqrt(std::abs(vtxError));//1.73mil 518s
+      //h[i] = 0.0015/std::sqrt(std::abs(vtxError));//488k 737s
+      //h[i] = 0.0001/(std::abs(vtxError));//1.5mil 1770s
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -281,7 +283,7 @@ int main(int argc, char *argv[])
     // adapt
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutQuart_1k_4p_1mil.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutQuart_1k_4p_smooth_mil.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);
@@ -300,10 +302,11 @@ int main(int argc, char *argv[])
     const Vector mfem_err = estimator.GetLocalErrors();
     ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(mfem_mesh);
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
-    pOmesh->ProjectErrorElementtoVertex (&o_mesh, "zz_error");
+    pOmesh->SmoothElementField (&o_mesh, "zz_error");
+    pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
 
     // Save data in the ParaView format
-    ParaViewDataCollection paraview_dc("Example3P_1mil", mfem_mesh);
+    ParaViewDataCollection paraview_dc("Example3P_1ksmooth_mil", mfem_mesh);
     paraview_dc.SetPrefixPath("CutQuart");
     paraview_dc.SetLevelsOfDetail(1);
     paraview_dc.SetDataFormat(VTKFormat::BINARY);
