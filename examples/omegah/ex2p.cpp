@@ -61,7 +61,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>
     (mesh->nverts() * oh::symm_ncomps(dim));
-  pOmesh->ProjectErrorElementtoVertex (mesh, "zz_error");
+  pOmesh->ProjectFieldElementtoVertex (mesh, "zz_error");
   auto zz_error = mesh->get_array<oh::Real> (0, "zz_error");
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
     auto x = coords[v*dim];
@@ -70,8 +70,10 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.000175/(std::abs((vtxError)));// 1k to 1.3 mil, 895s, 4p
-      //h[i] = 0.0005/(std::abs((vtxError)));//1k to 51k, 200s, 4p
+      h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
+      //h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);// 1k to 1.6mil
+      //h[i] = 0.000175/(std::abs((vtxError)));// 1k to 1.3 mil, 4p
+      //h[i] = 0.0005/(std::abs((vtxError)));//1k to 51k, 4p
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -231,12 +233,6 @@ int main(int argc, char *argv[])
     H1_FECollection smooth_flux_fec(order, dim);
     ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
     L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
-    const Vector mfem_err = estimator.GetLocalErrors();
-    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
-    pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
-    pOmesh->ProjectErrorElementtoVertex (&o_mesh, "zz_error");
-
-    // 17. Save data in the ParaView format
     //create gridfunction from estimator
     /* the next 4 lines were suggested by morteza */
     FiniteElementCollection *errorfec = new L2_FECollection(0, dim);
@@ -244,9 +240,14 @@ int main(int argc, char *argv[])
     ParGridFunction l2errors(&errorfespace);
     l2errors = estimator.GetLocalErrors();
     /* */
+    const Vector mfem_err = estimator.GetLocalErrors();
+    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
+    pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
+    pOmesh->SmoothElementField (&o_mesh, "zz_error");
+    pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
 
-    // 17. Save data in the ParaView format
-    ParaViewDataCollection paraview_dc("Example2P_mil", pmesh);
+    // Save data in the ParaView format
+    ParaViewDataCollection paraview_dc("Example2P_1k_bef", pmesh);
     paraview_dc.SetPrefixPath("CutTriCube");
     paraview_dc.SetLevelsOfDetail(1);
     paraview_dc.SetDataFormat(VTKFormat::BINARY);
@@ -257,22 +258,21 @@ int main(int argc, char *argv[])
     paraview_dc.RegisterField("zzErrors",&l2errors);
     paraview_dc.Save();
 
-    // 18. Free the used memory.
+    // Free the used memory.
     delete fec;
 
-    // 20. Perform adapt
+    // Perform adapt
 
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p_1mil.vtk");
+      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);
     puts(Fname);
-
-    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
+    //if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
 
   } // end adaptation loop
 
-   return 0;
+  return 0;
 }

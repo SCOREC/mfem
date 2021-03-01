@@ -59,17 +59,12 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale) {
     auto h = oh::Vector<dim>();
     for (oh::Int i = 0; i < dim - 1; ++i) h[i] = 0.1;
     //h[dim - 1] = 0.001*(0.001 + 0.198 * std::abs(z - 0.5));
-  //h[0] = 1*(0.001 + 0.198*std::abs(sqrt(y*y + z*z)));
-  //h[dim - 1] = 10*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); //4 mins
-    //with x fields 
-    //h[dim - 1] = 25*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); // 5mins
-    //h[dim - 1] = 25*(0.001 + 8 * std::abs(sqrt(x*x + y*y + z*z)));//too long
-    //h[dim - 1] = 1*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y)));//runs
-    // in 3 mins,20k elems 
-    //h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs to
-    // give 20k elems
-    // h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));// runs
-    // to give .5mil elems
+    //h[0] = 1*(0.001 + 0.198*std::abs(sqrt(y*y + z*z)));
+    //h[dim - 1] = 10*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); //with x fields 
+    //h[dim - 1] = 25*(0.001 + 0.198*std::abs(sqrt(x*x + y*y + z*z))); // 
+    //h[dim - 1] = 1*(0.001 + 0.198 * std::abs(sqrt(x*x + y*y)));//20k elems 
+    //h[dim - 1] = 10*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));//20k elems
+    //h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z)));//.5mil elems
     //h[dim - 1] = 0.05*(0.001 + 0.198 * std::abs(sqrt(x*x + z*z) - 0.5));
     h[dim - 1] = (0.001 + 0.198 * std::abs(z - 0.5));//original
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
@@ -354,7 +349,7 @@ int main(int argc, char *argv[])
    const Vector mfem_err = estimator.GetLocalErrors();
    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
    pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "metric");
-   pOmesh->ProjectErrorElementtoVertex (&o_mesh, "metric");
+   pOmesh->ProjectFieldElementtoVertex (&o_mesh, "metric");
    //pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "mfem_field");
    //pOmesh->ProjectErrorElementtoVertex (&o_mesh, "mfem_field");
 

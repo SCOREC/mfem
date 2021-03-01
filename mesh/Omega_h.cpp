@@ -201,6 +201,9 @@ namespace mfem {
 
 OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
                       bool fix_orientation, const int curved) {
+
+  //TODO add boundary class ids as attributes for this serial converter
+  
   const int nverts = o_mesh->oh::Mesh::nverts();
   const int nelems = o_mesh->oh::Mesh::nelems();
   const int dim = o_mesh->oh::Mesh::dim();

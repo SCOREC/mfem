@@ -50,7 +50,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
   auto coords = mesh->coords();
   auto target_metrics_w = oh::Write<oh::Real>
     (mesh->nverts() * oh::symm_ncomps(dim));
-  pOmesh->ProjectErrorElementtoVertex (mesh, "zz_error");
+  pOmesh->ProjectFieldElementtoVertex (mesh, "zz_error");
   auto zz_error = mesh->get_array<oh::Real> (0, "zz_error");
   auto f = OMEGA_H_LAMBDA(oh::LO v) {
     auto x = coords[v*dim];
@@ -60,7 +60,6 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
       h[i] = 0.025/(std::abs((vtxError)));
-      //h[i] = 0.001 + 650* std::abs((vtxError)); // error small-->fine mesh
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -276,7 +275,7 @@ int main(int argc, char *argv[])
    const Vector mfem_err = estimator.GetLocalErrors();
    ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
    pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
-   pOmesh->ProjectErrorElementtoVertex (&o_mesh, "zz_error");
+   pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
 
    // 17. Save data in the ParaView format
   //create gridfunction from estimator
