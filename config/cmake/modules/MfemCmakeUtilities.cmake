@@ -70,9 +70,13 @@ function(add_mfem_examples EXE_SRCS)
     endif()
   endif()
   foreach(SRC_FILE IN LISTS ${EXE_SRCS})
+    set(HOST_FLAG_PREFIX)
     # If CUDA is enabled, tag source files to be compiled with nvcc.
     if (MFEM_USE_CUDA)
       set_property(SOURCE ${SRC_FILE} PROPERTY LANGUAGE CUDA)
+      if(MFEM_USE_CUDA)
+        set(HOST_FLAG_PREFIX "-Xcompiler=")
+      endif()
     endif()
 
     get_filename_component(SRC_FILENAME ${SRC_FILE} NAME)
@@ -98,12 +102,13 @@ function(add_mfem_examples EXE_SRCS)
       if (MPI_CXX_COMPILE_FLAGS)
         separate_arguments(MPI_CXX_COMPILE_ARGS UNIX_COMMAND
           "${MPI_CXX_COMPILE_FLAGS}")
-        target_compile_options(${EXE_NAME} PRIVATE ${MPI_CXX_COMPILE_ARGS})
+        target_compile_options(${EXE_NAME} PRIVATE
+           ${HOST_FLAG_PREFIX}${MPI_CXX_COMPILE_ARGS})
       endif()
 
       if (MPI_CXX_LINK_FLAGS)
         set_target_properties(${EXE_NAME} PROPERTIES
-          LINK_FLAGS "${MPI_CXX_LINK_FLAGS}")
+          LINK_FLAGS  ${MPI_CXX_LINK_FLAGS} )
       endif()
     endif()
   endforeach(SRC_FILE)
