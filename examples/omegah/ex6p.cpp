@@ -161,9 +161,7 @@ int main(int argc, char *argv[])
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
   oh::binary::read
-    //("/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p.osh",
-    ("/users/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p.osh",
-  //oh::binary::read ("/users/joshia5/new_mesh/box_3d_48k_4p.osh",
+    ("../../../mfem/data/omega_h/cube_with_cutTriCube5k_4p.osh",
                     lib.world(), &o_mesh);
 
   // 4. The main adaptive loop. In each iteration we create mfem mesh from
@@ -378,9 +376,7 @@ int main(int argc, char *argv[])
 
     char Fname[128];
     sprintf(Fname,
-      //"/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube_1mil_4p_zMetric.vtk");
-      "/lore/joshia5/Meshes/oh-mfem/cube_with_cutTriCube5k_4p_mfemMetric.vtk");
-    //sprintf(Fname, "/users/joshia5/new_mesh/ohAdapt1p5XIter_cube.vtk");
+      "cube_with_cutTriCube5k_4p_mfemMetric.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);

@@ -48,7 +48,7 @@ void check_ents (oh::Mesh *o_mesh, Mesh *mesh) {
 
 void test_2d_mesh(oh::Library *lib) {
   oh::Mesh o_mesh(lib);
-  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/box_2d_8ele_2p.osh", lib->world(),
+  oh::binary::read ("../../../mfem/data/omega_h/box_2d_8ele_2p.osh", lib->world(),
                     &o_mesh);
 
   ParMesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);
@@ -64,7 +64,7 @@ void test_2d_mesh(oh::Library *lib) {
 
 void test_3d_mesh(oh::Library *lib) {
   oh::Mesh o_mesh(lib);
-  oh::binary::read ("/users/joshia5/Meshes/oh-mfem/box_3d_48k_2p.osh", lib->world(),
+  oh::binary::read ("../../../mfem/data/omega_h/box_3d_48k_2p.osh", lib->world(),
                     &o_mesh);
 
   ParMesh *mesh = new ParOmegaMesh (lib->world()->get_impl(), &o_mesh);

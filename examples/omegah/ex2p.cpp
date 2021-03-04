@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
   // 3. Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p.osh",
+  oh::binary::read ("../../../mfem/data/omega_h/unitbox_cutTriCube_1k_4p.osh",
                     lib.world(), &o_mesh);
   int max_iter = 2;
 
@@ -265,7 +265,7 @@ int main(int argc, char *argv[])
 
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutTriCube_1k_4p.vtk");
+      "/unitbox_cutTriCube_1k_4p.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);

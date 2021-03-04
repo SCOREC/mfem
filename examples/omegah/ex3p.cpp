@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
   // Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("/lore/joshia5/Meshes/oh-mfem/unitbox_cutQuart_1k_4p.osh",
+  oh::binary::read ("../../../mfem/data/omega_h/unitbox_cutQuart_1k_4p.osh",
                     lib.world(), &o_mesh);
 
   //number of adaptation iterations
@@ -270,7 +270,7 @@ int main(int argc, char *argv[])
     // adapt
     char Fname[128];
     sprintf(Fname,
-      "/lore/joshia5/Meshes/oh-mfem/unitbox_cutQuart_1k_4p_smooth_bef.vtk");
+      "unitbox_cutQuart_1k_4p_smooth_bef.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);
