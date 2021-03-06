@@ -70,7 +70,8 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
+      h[i] = 0.1/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
+      //h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
       //h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);// 1k to 1.6mil
       //h[i] = 0.000175/(std::abs((vtxError)));// 1k to 1.3 mil, 4p
       //h[i] = 0.0005/(std::abs((vtxError)));//1k to 51k, 4p
@@ -245,6 +246,7 @@ int main(int argc, char *argv[])
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
+    pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
 
     // Save data in the ParaView format
     ParaViewDataCollection paraview_dc("Example2P_1k_bef", pmesh);
@@ -265,12 +267,12 @@ int main(int argc, char *argv[])
 
     char Fname[128];
     sprintf(Fname,
-      "/unitbox_cutTriCube_1k_4p.vtk");
+      "unitbox_cutTriCube_1k_4p.vtk");
     char iter_str[8];
     sprintf(iter_str, "_%d", Itr);
     strcat(Fname, iter_str);
     puts(Fname);
-    //if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
+    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
 
   } // end adaptation loop
 

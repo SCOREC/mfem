@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
   oh::Mesh o_mesh(&lib);
   oh::binary::read ("../../../mfem/data/omega_h/cube_with_cutTriCube5k_4p.osh",
                     lib.world(), &o_mesh);
-  int max_iter = 2;
+  int max_iter = 1;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {

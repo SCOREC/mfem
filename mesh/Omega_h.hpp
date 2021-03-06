@@ -74,6 +74,10 @@ public:
   // Average element fields using neighbouring elements across faces
   void SmoothElementField (Omega_h::Mesh* o_mesh, std::string const &name);
 
+  // Transfer nodal field to omegah
+  void NodalFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, ParGridFunction* field,
+    std::string const &field_name);
+
   virtual ~ParOmegaMesh() {}
 };
 
