@@ -78,6 +78,10 @@ public:
   void NodalFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, ParGridFunction* field,
     std::string const &field_name);
 
+  //Transfer scalar vertex field OmegaH to MFEM
+  void VertexFieldOmegaHtoMFEM (Omega_h::Mesh* o_mesh,
+                  ParGridFunction* field, std::string const &field_name);
+
   virtual ~ParOmegaMesh() {}
 };
 

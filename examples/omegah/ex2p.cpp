@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
   oh::Mesh o_mesh(&lib);
   oh::binary::read ("../../../mfem/data/omega_h/unitbox_cutTriCube_1k_4p.osh",
                     lib.world(), &o_mesh);
-  int max_iter = 2;
+  int max_iter = 3;
 
   for (int Itr = 0; Itr < max_iter; Itr++)
   {
@@ -247,6 +247,11 @@ int main(int argc, char *argv[])
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
     pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
+
+    // test oh to mfem field transfer
+    ParGridFunction u_new(&fespace);
+    pOmesh->VertexFieldOmegaHtoMFEM (&o_mesh, &u_new, "temperature");
+    MFEM_ASSERT(u == u_new, "mfem assert for oh-2-mfem field transfer failed");
 
     // Save data in the ParaView format
     ParaViewDataCollection paraview_dc("Example2P_1k_bef", pmesh);

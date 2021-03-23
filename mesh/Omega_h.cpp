@@ -703,12 +703,11 @@ void ParOmegaMesh::SmoothElementField (oh::Mesh* o_mesh,
   return;
 }
 
-//Transfer scalar field MFEM to OmegaH
+//Transfer scalar vertex field MFEM to OmegaH
 void ParOmegaMesh::NodalFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
                   ParGridFunction* field, std::string const &field_name) {
 
   auto nverts = o_mesh->nverts();
-  // Get the solution
   Vector field_vals;
   field->GetNodalValues(field_vals);
   oh::HostWrite<oh::Real> o_field_h(nverts);
@@ -716,8 +715,24 @@ void ParOmegaMesh::NodalFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
   for (int v = 0; v < nverts; ++v) {
     o_field_h[v] = field_vals(v);
   }
-  //write scalar double tag to vertex
   o_mesh->add_tag<oh::Real>(0, field_name, 1, o_field_h.write());
+
+  return;
+}
+
+//Transfer scalar vertex field OmegaH to MFEM
+void ParOmegaMesh::VertexFieldOmegaHtoMFEM (oh::Mesh* o_mesh,
+                  ParGridFunction* field, std::string const &field_name) {
+
+  auto nverts = o_mesh->nverts();
+  auto o_field = o_mesh->get_array<double>(0, field_name);
+  Vector field_vals(nverts);
+  oh::HostRead<double> o_field_h(o_field);
+
+  for (int v = 0; v < nverts; ++v) {
+    field_vals(v) = o_field_h[v];
+  }
+  *field = field_vals;
 
   return;
 }
