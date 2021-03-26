@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
   double nbc_val = 0.0;
 
   // 3. Read Omega_h mesh
-  auto lib = oh::Library();
+  auto lib = oh::Library(&argc,&argv);
   oh::Mesh o_mesh(&lib);
   oh::binary::read ("../../../mfem/data/omega_h/unitbox_cutTriCube_1k_4p.osh",
                     lib.world(), &o_mesh);
