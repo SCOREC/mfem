@@ -136,6 +136,10 @@ public:
                                ParGridFunction* gf,
                                apf::Field* nedelec_field);
 
+   void VectorFieldPUMItoMFEM(apf::Mesh2* apf_mesh,
+                              apf::Field* VectorField,
+                              ParGridFunction* Vel);
+
    /// Update the mesh after adaptation.
    void UpdateMesh(const ParMesh* AdaptedpMesh);
 
