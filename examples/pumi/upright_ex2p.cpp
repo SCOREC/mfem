@@ -451,8 +451,6 @@ int main(int argc, char *argv[])
        // 12. The main AMR loop. In each iteration we solve the problem on the
        //     current mesh, visualize the solution, and adapt the mesh.
        //
-       //write vtk file
-       writeVtk(pumi_mesh,Itr);
 
        // 18. Field transfer. Scalar solution field and magnitude field for
        //     error estimation are created the pumi mesh.
@@ -475,6 +473,10 @@ int main(int argc, char *argv[])
         ipfield= spr::getGradIPField(temp_field, "MFEM_gradip", 2);
         sizefield = spr::getSPRSizeField(ipfield, adapt_ratio);
 
+       //write vtk file
+       writeVtk(pumi_mesh,Itr);
+       pumi_mesh->writeNative("preAdapt/");
+
         apf::destroyField(Tmag_field);
         apf::destroyField(ipfield);
         apf::destroyNumbering(pumi_mesh->findNumbering("LocalVertexNumbering"));
@@ -482,7 +484,7 @@ int main(int argc, char *argv[])
         // 19. Perform MesAdapt
         ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
         erinput->shouldFixShape = true;
-        erinput->shouldSnap = true;
+        erinput->shouldSnap = false;
         erinput->maximumIterations = 2;
         erinput->shouldRunMidParma = true;
         if ( geom_order > 1)
