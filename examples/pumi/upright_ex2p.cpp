@@ -479,7 +479,6 @@ int main(int argc, char *argv[])
 
         apf::destroyField(Tmag_field);
         apf::destroyField(ipfield);
-        apf::destroyNumbering(pumi_mesh->findNumbering("LocalVertexNumbering"));
 
         // 19. Perform MesAdapt
         ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
@@ -505,7 +504,7 @@ int main(int argc, char *argv[])
         x.Update();
         x = 0.0;      
 
-        pPPmesh->VectorFieldPUMItoMFEM(pumi_mesh, temp_field, &x);
+        pPPmesh->FieldPUMItoMFEM(pumi_mesh, temp_field, &x);
         a->Update();
         b->Update();           
 
