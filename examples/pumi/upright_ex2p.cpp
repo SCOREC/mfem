@@ -2,7 +2,7 @@
 //
 //
 // Description:  This example code solves a simple linear elasticity problem
-//               describing a multi-material cantilever beam.
+//               describing on a complex domain (known as upright)
 //
 //               Specifically, we approximate the weak form of -div(sigma(u))=0
 //               where sigma(u)=lambda*div(u)*I+mu*(grad*u+u*grad) is the stress
@@ -11,7 +11,7 @@
 //               u=0 on the fixed part of the boundary with attribute 1, and
 //               sigma(u).n=f on the remainder with f being a constant pull down
 //               vector on boundary elements with attribute 2, and zero
-//               otherwise. 
+//               otherwise.
 //Sample PUMI RUN
 //mpirun -np 2 ./pumi_upright_ex2p -m ../../data/pumi/parallel/upright/2p5kg1.smb -p ../../data/pumi/geom/upright_defeatured_geomsim.smd -bf ../../data/pumi/serial/boundary_upright.mesh -ar 0.04
 //
@@ -21,7 +21,7 @@
 #include <iostream>
 #include <sstream>
 
-#include "../../general/text.hpp"
+//#include "/lore/hakimm2/opt/mfem/include/mfem/general/text.hpp"
 
 #ifdef MFEM_USE_SIMMETRIX
 #include <SimUtil.h>
@@ -40,10 +40,127 @@ using namespace std;
 using namespace mfem;
 
 void writeVtk(apf::Mesh* m, int itr) {
-  std::stringstream ss;
-  ss << "upright_" << itr;
-  std::string vtkName = ss.str();
-  apf::writeVtkFiles(vtkName.c_str(), m);    
+   std::stringstream ss;
+   ss << "upright_" << itr;
+   std::string vtkName = ss.str();
+   apf::writeVtkFiles(vtkName.c_str(), m);
+}
+
+void updateVolumeAttributes(ParMesh* pmesh)
+{
+   // models spans the interval [0,0.21] in the y directions
+   // we want entities with
+   // a) center(1) <= 0.06 to have attribute 1
+   // b) center(1) > 0.06 and center(1) <= 0.12 to have attribute 2
+   // c) center(1) > 0.12 to have attribute 3
+   //
+   // center(1) denotes the y-component
+   double ppt[3];
+   Vector cent(ppt, 3);
+   for (int el = 0; el < pmesh->GetNE(); el++)
+   {
+      (pmesh->GetElementTransformation(el))->Transform(Geometries.GetCenter(
+                                                         pmesh->GetElementBaseGeometry(el)),cent);
+      if (cent(1) <= 0.06)
+      {
+         pmesh->SetAttribute(el , 1);
+      }
+      else if (cent(1) > 0.06 && cent(1) <= 0.12)
+      {
+         pmesh->SetAttribute(el , 2);
+      }
+      else
+      {
+         pmesh->SetAttribute(el , 3);
+      }
+
+   }
+   pmesh->SetAttributes();
+}
+
+
+void updateBoundaryAttributes(
+    apf::Mesh2* pumi_mesh,
+    ParMesh* pmesh,
+    const Array<int>& Dirichlet,
+    const Array<int>& load_bdr)
+{
+   int dim = pumi_mesh->getDimension();
+   apf::MeshIterator* itr = pumi_mesh->begin(dim-1);
+   apf::MeshEntity* ent ;
+   int bdr_cnt = 0;
+   while ((ent = pumi_mesh->iterate(itr)))
+   {
+      apf::ModelEntity *me = pumi_mesh->toModel(ent);
+      if (pumi_mesh->getModelType(me) == (dim-1))
+      {
+         //Evrywhere 3 as initial
+         (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(3);
+         int tag = pumi_mesh->getModelTag(me);
+         if (Dirichlet.Find(tag) != -1)
+         {
+            //Dirichlet attr -> 1
+            (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(1);
+         }
+         else if (load_bdr.Find(tag) != -1)
+         {
+            //load attr -> 2
+            (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(2);
+         }
+         bdr_cnt++;
+      }
+   }
+   pumi_mesh->end(itr);
+}
+
+
+// This function returns the trace of the stress tensor:
+// sigma_11 + sigma_22 + sigma_33
+void getTraceStress(
+    ParGridFunction& u, // input grid
+    PWConstCoefficient& lambda,
+    PWConstCoefficient& mu,
+    ParGridFunction& sigma) // output grid
+{
+  sigma = 0.0;
+  ParMesh* pmesh = u.ParFESpace()->GetParMesh();
+  const FiniteElementCollection* fec = u.ParFESpace()->FEColl();
+  ParFiniteElementSpace* fes = new ParFiniteElementSpace(pmesh, fec, 1); // this are scalar finite elements hence the 1
+
+  ParGridFunction lambda_grid(fes);
+  ParGridFunction mu_grid(fes);
+
+  lambda_grid.ProjectCoefficient(lambda);
+  mu_grid.ProjectCoefficient(mu);
+
+  mu_grid *= 2.;
+  lambda_grid *= 3.;
+
+  // after the next line mu_grid will actually hold 2*mu + 3*lambda
+  mu_grid += lambda_grid;
+
+
+  // trance of stress for an isotropic material is simply
+  // (2mu + 3lambda) * div(u)
+  ParGridFunction u11(fes);
+  ParGridFunction u22(fes);
+  ParGridFunction u33(fes);
+
+  u.GetDerivative(1,1,u11);
+  u.GetDerivative(2,2,u22);
+  u.GetDerivative(3,3,u33);
+
+
+  ParGridFunction divu(fes);
+  divu = 0.;
+
+  divu += u11;
+  divu += u22;
+  divu += u33;
+
+  sigma = divu;
+
+  sigma *= mu_grid;
 }
 
 int main(int argc, char *argv[])
@@ -56,12 +173,13 @@ int main(int argc, char *argv[])
    MPI_Comm_rank(MPI_COMM_WORLD, &myId);
 
    // 1. Parse command-line options.
-   const char *mesh_file = "../../data/pumi/parallel/upright/parallel/uprightNoRingGeomSim-2p5kg1/";
+   const char *mesh_file = "../../data/pumi/parallel/upright/parallel/2p_10k/";
    const char *boundary_file = "../../data/pumi/geom/upright.def";
 #ifdef MFEM_USE_SIMMETRIX
-   const char *model_file = "../../data/pumi/geom/uprightNoRingGeomSim.smd";
+   const char *model_file = "../../data/pumi/geom/upright_no_ring_nat.x_t";
 #else
-   const char *model_file = "../../data/pumi/geom/pillbox.dmg";
+   fprintf(stderr, "Rebuild with MFEM_USE_SIMMETRIX=on\n");
+   return 0;
 #endif
 
    bool static_cond = false;
@@ -69,7 +187,7 @@ int main(int argc, char *argv[])
    int geom_order = 1;
    int order = 1;
    bool amg_elast = 0;
-   double adapt_ratio = 0.2;
+   double adapt_ratio = 0.15;
    int verbose = 0;
 
    OptionsParser args(argc, argv);
@@ -85,7 +203,7 @@ int main(int argc, char *argv[])
    args.AddOption(&amg_elast, "-elast", "--amg-for-elasticity", "-sys",
                   "--amg-for-systems",
                   "Use the special AMG elasticity solver (GM/LN approaches), "
-                  "or standard AMG for systems (unknown approach).");  
+                  "or standard AMG for systems (unknown approach).");
    args.AddOption(&model_file, "-p", "--parasolid",
                   "Parasolid model to use.");
    args.AddOption(&geom_order, "-go", "--geometry_order",
@@ -93,10 +211,10 @@ int main(int argc, char *argv[])
    args.AddOption(&boundary_file, "-bf", "--txt",
                   "txt file containing boundary tags");
    args.AddOption(&adapt_ratio, "-ar", "--adapt_ratio",
-                  "adaptation factor used in MeshAdapt");   
+                  "adaptation factor used in MeshAdapt");
    args.AddOption(&verbose, "-v", "--verbose",
-                  "increase the output from PUMI; 0:silent, >0:not silent");   
-   
+                  "increase the output from PUMI; 0:silent, >0:not silent");
+
    args.Parse();
    if (!args.Good())
    {
@@ -110,7 +228,7 @@ int main(int argc, char *argv[])
    if (myId == 0)
    {
       args.PrintOptions(cout);
-   }   
+   }
 
    // 2. Read the mesh from the given mesh file. We can handle triangular,
    //    quadrilateral, tetrahedral or hexahedral elements with the same code.
@@ -134,7 +252,7 @@ int main(int argc, char *argv[])
       bc.run();
    }
    pumi_mesh->verify();
-   
+
 
    //Read boundary
    string bdr_tags;
@@ -174,61 +292,12 @@ int main(int argc, char *argv[])
    }
    load_bdr.Print();
 
-   // 3. Read the (serial) mesh from the given mesh file on all processors.  We
-   //    can handle triangular, quadrilateral, tetrahedral, hexahedral, surface
-   //    and volume meshes with the same code.
+   // 3. Read the mesh from the given mesh file on all processors.
    ParMesh *pmesh = new ParPumiMesh(MPI_COMM_WORLD, pumi_mesh);
    int dim = pumi_mesh->getDimension();
 
-   //Hack for the boundary condition
-   apf::MeshIterator* itr = pumi_mesh->begin(dim-1);
-   apf::MeshEntity* ent ;
-   int bdr_cnt = 0;
-   while ((ent = pumi_mesh->iterate(itr)))
-   {
-      apf::ModelEntity *me = pumi_mesh->toModel(ent);
-      if (pumi_mesh->getModelType(me) == (dim-1))
-      {
-         //Evrywhere 3 as initial
-         (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(3);
-         int tag = pumi_mesh->getModelTag(me);
-         if (Dirichlet.Find(tag) != -1)
-         {
-            //Dirichlet attr -> 1
-            (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(1);
-         }
-         else if (load_bdr.Find(tag) != -1)
-         {
-            //load attr -> 2
-            (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(2);
-         }
-         bdr_cnt++;
-      }
-   }
-   pumi_mesh->end(itr);
-
-   //assign attr for elements
-   double ppt[3];
-   Vector cent(ppt, dim);
-   for (int el = 0; el < pmesh->GetNE(); el++)
-   {
-      (pmesh->GetElementTransformation(el))->Transform(Geometries.GetCenter(
-                                                         pmesh->GetElementBaseGeometry(el)),cent);
-      if (cent(1) <= 0.01)
-      {
-         pmesh->SetAttribute(el , 1);
-      }
-      else if (cent(1) >= 0.1)
-      {
-         pmesh->SetAttribute(el , 2);
-      }
-      else
-      {
-         pmesh->SetAttribute(el , 3);
-      }
-
-   }
-   pmesh->SetAttributes();
+   updateBoundaryAttributes(pumi_mesh, pmesh, Dirichlet, load_bdr);
+   updateVolumeAttributes(pmesh);
 
    cout << " elem attr max " << pmesh->attributes.Max() << " bdr attr max " <<
         pmesh->bdr_attributes.Max() <<endl;
@@ -239,7 +308,7 @@ int main(int argc, char *argv[])
            << endl;
       return 3;
    }
-   
+
 
    // 7. Define a parallel finite element space on the parallel mesh. Here we
    //    use vector finite elements, i.e. dim copies of a scalar finite element
@@ -248,24 +317,29 @@ int main(int argc, char *argv[])
    //    version of BoomerAMG preconditioner. For NURBS meshes, we use the
    //    (degree elevated) NURBS space associated with the mesh nodes.
    FiniteElementCollection *fec;
-   ParFiniteElementSpace *fespace;
-   const bool use_nodal_fespace = pmesh->NURBSext && !amg_elast;
-   if (use_nodal_fespace)
-   {
-      fec = NULL;
-      fespace = (ParFiniteElementSpace *)pmesh->GetNodes()->FESpace();
-   }
-   else
-   {
-      fec = new H1_FECollection(order, dim);
-      fespace = new ParFiniteElementSpace(pmesh, fec, dim);//, Ordering::byVDIM
-   }
+   ParFiniteElementSpace *fespace;  // vector version
+   ParFiniteElementSpace *fespaces; // scalar version
+   /* const bool use_nodal_fespace = pmesh->NURBSext && !amg_elast; */
+   /* if (use_nodal_fespace) */
+   /* { */
+   /*    fec = NULL; */
+   /*    fespace = (ParFiniteElementSpace *)pmesh->GetNodes()->FESpace(); */
+   /* } */
+   /* else */
+   /* { */
+   fec = new H1_FECollection(order, dim);
+   fespace  = new ParFiniteElementSpace(pmesh, fec, dim);
+   fespaces = new ParFiniteElementSpace(pmesh, fec, 1);
+
+   /* } */
    HYPRE_Int size = fespace->GlobalTrueVSize();
    if (myId == 0)
    {
       cout << "Number of finite element unknowns: " << size << endl
            << "Assembling: " << flush;
    }
+
+   /* ParFiniteElementSpace* fespace_scalar = new ParFiniteElementSpace(pmesh, fec, 1); */
 
    // 8. Determine the list of true (i.e. parallel conforming) essential
    //    boundary dofs. In this example, the boundary conditions are defined by
@@ -287,7 +361,7 @@ int main(int argc, char *argv[])
    VectorArrayCoefficient f(dim);
    f.Set(0, new ConstantCoefficient(0.0));
    f.Set(1, new ConstantCoefficient(0.0));
-   f.Set(2, new ConstantCoefficient(0.0));   
+   f.Set(2, new ConstantCoefficient(0.0));
 
 
    //ParLinearForm *b = new ParLinearForm(fespace);
@@ -302,109 +376,68 @@ int main(int argc, char *argv[])
    //     function corresponding to fespace. Initialize x with initial guess of
    //     zero, which satisfies the boundary conditions.
    ParGridFunction x(fespace);
+   ParGridFunction sigma(fespaces);
    x = 0.0;
+   sigma = 0.0;
 
    // 11. Set up the parallel bilinear form a(.,.) on the finite element space
    //     corresponding to the linear elasticity integrator with piece-wise
    //     constants coefficient lambda and mu.
    Vector lambda(pmesh->attributes.Max());
    lambda = 1.0;
-   lambda(0) = lambda(1)*50;
+   /* lambda(1) = lambda(0)*10.; */
    PWConstCoefficient lambda_func(lambda);
    Vector mu(pmesh->attributes.Max());
    mu = 1.0;
-   mu(0) = mu(1)*50;
+   /* mu(1) = mu(0)*10.; */
    PWConstCoefficient mu_func(mu);
 
    ParBilinearForm *a = new ParBilinearForm(fespace);
    a->AddDomainIntegrator(new ElasticityIntegrator(lambda_func, mu_func));
-   
+
+
+    f.Set(0, new ConstantCoefficient(0.0));
+    f.Set(1, new ConstantCoefficient(0.0));
+    f.Set(2, new ConstantCoefficient(0.0));
+    {
+	  Vector pull_force(pmesh->bdr_attributes.Max());
+	  pull_force = 0.0;
+	  /* pull_force(1) =  1.e-1; */
+	  pull_force(2) =  1.e-1;
+	  f.Set(1, new PWConstCoefficient(pull_force));
+    }
+    ParLinearForm *b = new ParLinearForm(fespace);
+    b->AddBoundaryIntegrator(new VectorBoundaryLFIntegrator(f));
+
 
     // 12. Assemble the parallel bilinear form and the corresponding linear
     //     system, applying any necessary transformations such as: parallel
     //     assembly, eliminating boundary conditions, applying conforming
     //     constraints for non-conforming AMR, static condensation, etc.
     if (myId == 0) { cout << "matrix ... " << flush; }
-    if (static_cond) { a->EnableStaticCondensation(); }   
-   
-   apf::Field* Tmag_field = 0;
-   apf::Field* temp_field = 0;
+    if (static_cond) { a->EnableStaticCondensation(); }
+
+   apf::Field* disp_field = 0;
+   apf::Field* disp_field_mag = 0;
+   apf::Field* trace_stress = 0;
+   apf::Field* trace_stress_mag = 0;
    apf::Field* ipfield = 0;
-   apf::Field* sizefield = 0;     
-   
-   int max_iter = 4;
+   apf::Field* sizefield = 0;
+
+   int max_iter = 3;
 
    for (int Itr = 0; Itr < max_iter; Itr++)
-   {   
+   {
 
-     a->Assemble();
-        
-     //Hack for the boundary condition
-     itr = pumi_mesh->begin(dim-1);
-     bdr_cnt = 0;
-     while ((ent = pumi_mesh->iterate(itr)))
-       {
-           apf::ModelEntity *me = pumi_mesh->toModel(ent);
-           if (pumi_mesh->getModelType(me) == (dim-1))
-           {
-              //Evrywhere 3 as initial
-              (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(3);
-              int tag = pumi_mesh->getModelTag(me);
-              if (Dirichlet.Find(tag) != -1)
-              {
-                 //Dirichlet attr -> 1
-                 (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(1);
-              }
-              else if (load_bdr.Find(tag) != -1)
-              {
-                 //load attr -> 2
-                 (pmesh->GetBdrElement(bdr_cnt))->SetAttribute(2);
-              }
-              bdr_cnt++;
-           }
-       }
-       pumi_mesh->end(itr);
-
-      //assign attr for elements
-      Vector cent(ppt, dim);
-      for (int el = 0; el < pmesh->GetNE(); el++)
-       {
-           (pmesh->GetElementTransformation(el))->Transform(Geometries.GetCenter(
-                                                              pmesh->GetElementBaseGeometry(el)),cent);
-           if (cent(1) <= 0.01)
-           {
-              pmesh->SetAttribute(el , 1);
-           }
-           else if (cent(1) >= 0.1)
-           {
-              pmesh->SetAttribute(el , 2);
-           }
-           else
-           {
-              pmesh->SetAttribute(el , 3);
-           }
-
-       }
-       pmesh->SetAttributes();       
-        
-      f.Set(0, new ConstantCoefficient(0.0));
-      f.Set(1, new ConstantCoefficient(0.0));
-      f.Set(2, new ConstantCoefficient(0.0));
-      {
-           Vector pull_force(pmesh->bdr_attributes.Max());
-           pull_force = 0.0;
-           pull_force(1) =  1.0e-2;
-           f.Set(1, new PWConstCoefficient(pull_force));
-      }        
-      ParLinearForm *b = new ParLinearForm(fespace);
-      b->AddBoundaryIntegrator(new VectorBoundaryLFIntegrator(f));
+      a->Assemble();
       b->Assemble();
-        
+
       Array<int> ess_tdof_list, ess_bdr(pmesh->bdr_attributes.Max());
       ess_bdr = 0;
       ess_bdr[0] = 1;
-      fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);        
-        
+      fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+
+
       HypreParMatrix A;
       Vector B, X;
       a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B);
@@ -436,6 +469,7 @@ int main(int argc, char *argv[])
       //     local finite element solution on each processor.
       a->RecoverFEMSolution(X, *b, x);
 
+
       // 17. Send the above data by socket to a GLVis server.  Use the "n" and "b"
       //     keys in GLVis to visualize the displacements.
       if (visualization)
@@ -448,44 +482,50 @@ int main(int argc, char *argv[])
            sol_sock << "solution\n" << *pmesh << x << flush;
        }
 
-       // 12. The main AMR loop. In each iteration we solve the problem on the
-       //     current mesh, visualize the solution, and adapt the mesh.
-       //
-
        // 18. Field transfer. Scalar solution field and magnitude field for
        //     error estimation are created the pumi mesh.
        if (order > geom_order)
         {
-              Tmag_field = apf::createField(pumi_mesh, "field_mag",
+              disp_field_mag = apf::createField(pumi_mesh, "|u|",
                                             apf::SCALAR, apf::getLagrange(order));
-              temp_field = apf::createField(pumi_mesh, "T_field",
+              disp_field = apf::createField(pumi_mesh, "u",
                                             apf::VECTOR, apf::getLagrange(order));
+              trace_stress = apf::createField(pumi_mesh, "sigma",
+                                            apf::SCALAR, apf::getLagrange(order));
+              trace_stress_mag = apf::createField(pumi_mesh, "|sigma|",
+                                            apf::SCALAR, apf::getLagrange(order));
         }
         else
         {
-             Tmag_field = apf::createFieldOn(pumi_mesh, "field_mag",apf::VECTOR);
-             temp_field = apf::createFieldOn(pumi_mesh, "T_field", apf::VECTOR);
+             disp_field_mag = apf::createFieldOn(pumi_mesh, "|u|",apf::SCALAR);
+             disp_field = apf::createFieldOn(pumi_mesh, "u", apf::VECTOR);
+             trace_stress = apf::createFieldOn(pumi_mesh, "sigma", apf::SCALAR);
+             trace_stress_mag = apf::createFieldOn(pumi_mesh, "|sigma|", apf::SCALAR);
         }
 
         ParPumiMesh* pPPmesh = dynamic_cast<ParPumiMesh*>(pmesh);
-        pPPmesh->VectorFieldMFEMtoPUMI(pumi_mesh, &x, temp_field, Tmag_field);
+        pPPmesh->VectorFieldMFEMtoPUMI(pumi_mesh, &x, disp_field, disp_field_mag);
 
-        ipfield= spr::getGradIPField(temp_field, "MFEM_gradip", 2);
+	getTraceStress(x, lambda_func, mu_func, sigma);
+        pPPmesh->FieldMFEMtoPUMI(pumi_mesh, &sigma, trace_stress, trace_stress_mag);
+
+
+        ipfield= spr::getGradIPField(trace_stress, "gradip", 2);
         sizefield = spr::getSPRSizeField(ipfield, adapt_ratio);
 
-       //write vtk file
-       writeVtk(pumi_mesh,Itr);
-       pumi_mesh->writeNative("preAdapt/");
+        //write vtk file
+        writeVtk(pumi_mesh,Itr);
+        pumi_mesh->writeNative("preAdapt/");
 
-        apf::destroyField(Tmag_field);
+        pumi_mesh->removeField(ipfield);
         apf::destroyField(ipfield);
 
         // 19. Perform MesAdapt
         ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
         erinput->shouldFixShape = true;
-        erinput->shouldSnap = true;
-        erinput->maximumIterations = 2;
-        erinput->shouldRunMidParma = true;
+        erinput->shouldCoarsen = false;
+        erinput->maximumIterations = 3;
+        /* erinput->shouldRunMidParma = true; */
         if ( geom_order > 1)
         {
             crv::adapt(erinput);
@@ -498,24 +538,36 @@ int main(int argc, char *argv[])
 
         ParMesh* Adapmesh = new ParPumiMesh(MPI_COMM_WORLD, pumi_mesh);
         pPPmesh->UpdateMesh(Adapmesh);
-        delete Adapmesh;   
+        delete Adapmesh;
+
+	updateBoundaryAttributes(pumi_mesh, pmesh, Dirichlet, load_bdr);
+	updateVolumeAttributes(pmesh);
 
         fespace->Update();
+        fespaces->Update();
         x.Update();
-        x = 0.0;      
+        sigma.Update();
+        x = 0.0;
+        sigma = 0.0;
 
-        pPPmesh->FieldPUMItoMFEM(pumi_mesh, temp_field, &x);
         a->Update();
-        b->Update();           
+        b->Update();
 
         //Destroy fields
-        apf::destroyField(temp_field);
-        apf::destroyField(sizefield);   
-           
+        pumi_mesh->removeField(disp_field);
+        pumi_mesh->removeField(disp_field_mag);
+        pumi_mesh->removeField(trace_stress);
+        pumi_mesh->removeField(trace_stress_mag);
+        pumi_mesh->removeField(sizefield);
+
+        apf::destroyField(disp_field);
+        apf::destroyField(disp_field_mag);
+        apf::destroyField(trace_stress);
+        apf::destroyField(trace_stress_mag);
+        apf::destroyField(sizefield);
+
         delete pcg;
         delete amg;
-        delete b;
-     
    }
 
    writeVtk(pumi_mesh,max_iter);
@@ -525,6 +577,7 @@ int main(int argc, char *argv[])
    if (fec)
    {
       delete fespace;
+      delete fespaces;
       delete fec;
    }
    delete pmesh;
@@ -537,7 +590,7 @@ int main(int argc, char *argv[])
    gmi_sim_stop();
    Sim_unregisterAllKeys();
 #endif
-   
+
    MPI_Finalize();
 
    return 0;
