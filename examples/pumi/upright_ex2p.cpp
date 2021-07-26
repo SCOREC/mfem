@@ -21,7 +21,7 @@
 #include <iostream>
 #include <sstream>
 
-//#include "/lore/hakimm2/opt/mfem/include/mfem/general/text.hpp"
+#include "../../general/text.hpp" //text parsing
 
 #ifdef MFEM_USE_SIMMETRIX
 #include <SimUtil.h>
