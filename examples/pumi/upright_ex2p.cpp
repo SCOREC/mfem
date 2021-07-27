@@ -522,7 +522,7 @@ int main(int argc, char *argv[])
         // 19. Perform MesAdapt
         ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
         erinput->shouldFixShape = true;
-        erinput->shouldCoarsen = false;
+        erinput->shouldCoarsen = true;
         erinput->maximumIterations = 3;
         /* erinput->shouldRunMidParma = true; */
         if ( geom_order > 1)
