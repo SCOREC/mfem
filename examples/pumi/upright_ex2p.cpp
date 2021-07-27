@@ -189,6 +189,7 @@ int main(int argc, char *argv[])
    bool amg_elast = 0;
    double adapt_ratio = 0.15;
    int verbose = 0;
+   bool shouldCoarsen = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -214,6 +215,8 @@ int main(int argc, char *argv[])
                   "adaptation factor used in MeshAdapt");
    args.AddOption(&verbose, "-v", "--verbose",
                   "increase the output from PUMI; 0:silent, >0:not silent");
+   args.AddOption(&shouldCoarsen, "-c", "--enable_coarsening", "-nc", "-disable_coarsening",
+                  "Enable or disable coarsening in mesh adaptation.");
 
    args.Parse();
    if (!args.Good())
@@ -522,7 +525,7 @@ int main(int argc, char *argv[])
         // 19. Perform MesAdapt
         ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
         erinput->shouldFixShape = true;
-        erinput->shouldCoarsen = true;
+        erinput->shouldCoarsen = shouldCoarsen;
         erinput->maximumIterations = 3;
         /* erinput->shouldRunMidParma = true; */
         if ( geom_order > 1)
