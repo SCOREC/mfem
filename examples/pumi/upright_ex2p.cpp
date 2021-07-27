@@ -515,7 +515,6 @@ int main(int argc, char *argv[])
 
         //write vtk file
         writeVtk(pumi_mesh,Itr);
-        pumi_mesh->writeNative("preAdapt/");
 
         pumi_mesh->removeField(ipfield);
         apf::destroyField(ipfield);
