@@ -68,7 +68,6 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      //h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);//1k, 0.8mil
       h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);//1k, 0.33mil
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);

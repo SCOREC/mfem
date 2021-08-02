@@ -70,23 +70,11 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      //h[i] = 0.1/std::pow(std::abs(vtxError), 0.6);// no adapt
       h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
-      //h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);// 1k to 1.6mil
-      //h[i] = 0.000175/(std::abs((vtxError)));// 1k to 1.3 mil, 4p
-      //h[i] = 0.0005/(std::abs((vtxError)));//1k to 51k, 4p
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
   oh::parallel_for(mesh->nverts(), f);
-  
-  /*
-  mesh->set_parting(OMEGA_H_GHOSTED);
-  auto target_metrics = limit_metric_gradation
-                        (mesh, oh::Reals(target_metrics_w), 1.0);
-  mesh->set_parting(OMEGA_H_GHOSTED);
-  mesh->set_tag(oh::VERT, "target_metric", target_metrics);
-  */
   
   mesh->set_tag(oh::VERT, "target_metric", oh::Reals(target_metrics_w));
 }
@@ -258,7 +246,7 @@ int main(int argc, char *argv[])
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
     pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
 
-    // test oh to mfem field transfer
+    // test oh to mfem field transfer; segfaults
     /*
     ParGridFunction u_new(&fespace);
     pOmesh->VertexFieldOmegaHtoMFEM (&o_mesh, &u_new, "temperature");
