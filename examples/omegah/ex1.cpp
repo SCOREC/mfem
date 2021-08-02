@@ -14,6 +14,7 @@
 #include <iostream>
 
 #include <Omega_h_file.hpp>
+#include <Omega_h_for.hpp>
 #include <Omega_h_library.hpp>
 #include <Omega_h_mesh.hpp>
 #include <Omega_h_comm.hpp>
@@ -74,6 +75,7 @@ void test_2d_mesh(oh::Library *lib) {
   std::string mfem_mesh ("box_2d_mfem.vtk");
   std::fstream vtkFs (mfem_mesh.c_str(), std::ios::out);
   mesh->PrintVTK(vtkFs);
+
   return;
 }
 
@@ -101,6 +103,7 @@ void test_3d_mesh(oh::Library *lib) {
   std::string mfem_mesh ("box_3d_mfem.vtk");
   std::fstream vtkFs (mfem_mesh.c_str(), std::ios::out);
   mesh->PrintVTK(vtkFs);
+
   return;
 }
 

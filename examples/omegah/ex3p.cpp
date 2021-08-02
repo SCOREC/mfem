@@ -38,7 +38,6 @@ using namespace mfem;
 
 namespace oh = Omega_h;
 
-/* the next 8 lines were copied from morteza's example*/
 double f_239(const Vector& x)
 {
   return 10. - (x(0) - 0.5)/ 0.05;
@@ -69,11 +68,8 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);//1k, 0.8mil
-      //h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);//1k, 0.33mil
-      //h[i] = 0.001/std::sqrt(std::abs(vtxError));//1k, 1.73mil
-      //h[i] = 0.0015/std::sqrt(std::abs(vtxError));//1k, 488k
-      //h[i] = 0.0001/(std::abs(vtxError));//1.5mil
+      //h[i] = 0.00075/std::pow(std::abs(vtxError), 0.6);//1k, 0.8mil
+      h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);//1k, 0.33mil
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -136,14 +132,11 @@ int main(int argc, char *argv[])
                     lib.world(), &o_mesh);
 
   //number of adaptation iterations
-  int max_iter = 2;
+  int max_iter = 3;
   for (int Itr = 0; Itr < max_iter; Itr++)  {
 
     ParMesh *mfem_mesh = new ParOmegaMesh (MPI_COMM_WORLD, &o_mesh);
 
-    /* from here till line 268, i.e., BC settings and mfem solution setup
-     * copied from morteza's example or suggested by him, also model for
-     * this example created by morteza */
     int dim  = mfem_mesh->Dimension();
     int sdim = mfem_mesh->SpaceDimension();
 
@@ -265,7 +258,6 @@ int main(int argc, char *argv[])
     // recover the solution
     a.RecoverFEMSolution(X, b, u_fem);
 
-    /*End of code from morteza's example*/
   
     // adapt
     char Fname[128];
@@ -290,6 +282,7 @@ int main(int argc, char *argv[])
     ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(mfem_mesh);
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
+    pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
 
     // Save data in the ParaView format
@@ -304,7 +297,7 @@ int main(int argc, char *argv[])
     paraview_dc.RegisterField("zzErrors",&l2errors);
     paraview_dc.Save();
 
-    //if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
+    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
 
     delete fes;
     delete fec;
