@@ -35,6 +35,7 @@
 #include <apfConvert.h>
 #include <gmi_mesh.h>
 #include <crv.h>
+#include <simLicKeys.h>
 
 using namespace std;
 using namespace mfem;
@@ -238,7 +239,11 @@ int main(int argc, char *argv[])
    // 3. Read the SCOREC Mesh
    PCU_Comm_Init();
 #ifdef MFEM_USE_SIMMETRIX
-   Sim_readLicenseFile(0);
+   const int licErr = registerSimKeys();
+   if (licErr) {
+     fprintf(stderr, "ERROR: One or more Simmetrix license keys was invalid... exiting\n");
+     return 1;
+   }
    gmi_sim_start();
    gmi_register_sim();
 #endif
