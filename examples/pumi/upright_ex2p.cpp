@@ -520,9 +520,6 @@ int main(int argc, char *argv[])
         ipfield= spr::getGradIPField(trace_stress, "gradip", 2);
         sizefield = spr::getSPRSizeField(ipfield, adapt_ratio);
 
-        //write vtk file
-        writeVtk(pumi_mesh,Itr);
-
         pumi_mesh->removeField(ipfield);
         apf::destroyField(ipfield);
 
@@ -541,6 +538,9 @@ int main(int argc, char *argv[])
             ma::adapt(erinput);
         }
         pumi_mesh->verify();
+
+        //write vtk file
+        writeVtk(pumi_mesh,Itr);
 
         ParMesh* Adapmesh = new ParPumiMesh(MPI_COMM_WORLD, pumi_mesh);
         pPPmesh->UpdateMesh(Adapmesh);
