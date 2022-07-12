@@ -202,8 +202,6 @@ namespace mfem {
 OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
                       bool fix_orientation, const int curved) {
 
-  //TODO add boundary class ids as attributes for this serial converter
-  
   const int nverts = o_mesh->oh::Mesh::nverts();
   const int nelems = o_mesh->oh::Mesh::nelems();
   const int dim = o_mesh->oh::Mesh::dim();
@@ -234,6 +232,10 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
   oh::HostRead<oh::LO> bv2v_h(bv2v);
   auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
   auto b2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim - 1, oh::VERT);
+  // for storing classification Id
+  auto c_class_ids = o_mesh->get_array<oh::ClassId>(dim, "class_id");
+  oh::HostRead<oh::LO> c_class_ids_h(c_class_ids);
+  // Create elements
   for (int elem = 0; elem < nelems; ++elem) {
     elements[elem] = NewElement(dim_type); 
     auto el = elements[elem];
@@ -244,11 +246,19 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     for (int i = 0; i < nv; ++i) {
       v[i] = ev2v_h[elem*e2v_degree + i];
     }
+
+    int Attr = c_class_ids_h[elem];
+    el->SetAttribute(Attr);
   }
 
   // Create boundary
   NumOfBdrElements = nBdrEnts;
   boundary.SetSize(NumOfBdrElements);
+  // for storing classification Id
+  auto s_class_ids = o_mesh->get_array<oh::ClassId>(dim - 1, "class_id");
+  oh::HostRead<oh::LO> s_class_ids_h(s_class_ids);
+  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
+  oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(bdr_type);
     auto el = boundary[bdry];
@@ -259,6 +269,12 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     for (int i = 0; i < nv; ++i) {
       v[i] = bv2v_h[bdry*b2v_degree + i];
     }
+
+    // Assign attribute for sides
+    int Attr = 1;
+    auto oh_id = boundary_h[bdry];
+    if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
+    el->SetAttribute(Attr);
   }
 
   // Fill vertices
@@ -791,15 +807,15 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
   int nnodes = All_nodes.Size();
 
   // Loop over elements
-  int iel = 0;
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     Array<int> vdofs;
-    fes->GetElementVDofs(iel, vdofs);
+    fes->GetElementVDofs(elem, vdofs);
 
     // Vertices are already interpolated
     for (int ip = 0; ip < nnodes; ip++) {
       // Take parametric coordinates of the node
       oh::Vector<3> param;
+      //TODO check orientation of elms
       param[0] = All_nodes.IntPoint(ip).x;
       param[1] = All_nodes.IntPoint(ip).y;
       param[2] = All_nodes.IntPoint(ip).z;
@@ -816,10 +832,9 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
         oh_data[vdofs[dof_ctr]] = phCrd[kk];
       }
     }
-    iel++;
   }
 
-  sequence = 0;
+  fes_sequence = 0;
 }
 
 } // end namespace mfem
