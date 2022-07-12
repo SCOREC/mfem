@@ -62,7 +62,7 @@ public:
   // This function loads a parallel Omega_h mesh and returns the parallel MFEM mesh
   // corresponding to it.
   ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, int refine = 0,
-            bool fix_orientation = true, const int curved = 0);
+            bool fix_orientation = true);
 
   // Transfer information about error estimator to Omega_h
   void ElementFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, const Vector
