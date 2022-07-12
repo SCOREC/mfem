@@ -771,6 +771,62 @@ void ParOmegaMesh::VertexFieldOmegaHtoMFEM (oh::Mesh* o_mesh,
   return;
 }
 
+// GridFunction Implementation needed for high order meshes
+GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
+
+  int spDim = m->SpaceDimension();
+  // Note: default BasisType for 'fec' is GaussLobatto.
+  fec = new H1_FECollection(mesh_order, m->Dimension());
+  int ordering = Ordering::byVDIM; // x1y1z1/x2y2z2/...
+  fes = new FiniteElementSpace(m, fec, spDim, ordering);
+  int data_size = fes->GetVSize();
+
+  // Read PUMI mesh data
+   this->SetSize(data_size);
+   double* oh_data = this->GetData();
+
+  // Assume all element type are the same i.e. tetrahedral
+  const FiniteElement* H1_elem = fes->GetFE(0);
+  const IntegrationRule &All_nodes = H1_elem->GetNodes();
+  int nnodes = All_nodes.Size();
+
+  // Loop over elements
+
+  int iel = 0;
+  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+    Array<int> vdofs;
+    fes->GetElementVDofs(iel, vdofs);
+
+    // Create PUMI element to interpolate
+
+    // Vertices are already interpolated
+    for (int ip = 0; ip < nnodes; ip++)
+    {
+      // Take parametric coordinates of the node
+      oh::Vector<3> param;
+      param[0] = All_nodes.IntPoint(ip).x;
+      param[1] = All_nodes.IntPoint(ip).y;
+      param[2] = All_nodes.IntPoint(ip).z;
+
+      // Compute the interpolating coordinates
+      auto phCrd = rgn_parametricToParent_3d(order, elem, o_mesh->get_adj(1,0).ab2b, 
+                 o_mesh->ask_down(3,0).ab2b, o_mesh->get_ctrlPts(0), 
+                 o_mesh->get_ctrlPts(1), o_mesh->get_ctrlPts(2), param, 
+                 o_mesh->ask_down(3,1).ab2b, o_mesh->get_adj(3,2).ab2b);
+
+      // Fill the nodes list
+      for (int kk = 0; kk < spDim; ++kk)
+      {
+        int dof_ctr = ip + kk * nnodes;
+        oh_data[vdofs[dof_ctr]] = phCrd[kk];
+      }
+    }
+    iel++;
+  }
+
+  sequence = 0;
+}
+
 } // end namespace mfem
 
 #endif // MFEM_USE_OMEGAH
