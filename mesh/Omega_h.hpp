@@ -71,6 +71,9 @@ public:
   // Transfer tag from omega_h element to omega_h vertex
   void ProjectFieldElementtoVertex (Omega_h::Mesh* o_mesh, std::string const &name);
 
+  // Transfer tag from omega_h element to omega_h edge
+  void ProjectFieldElementtoEdge (Omega_h::Mesh* o_mesh, std::string const &name);
+
   // Average element fields using neighbouring elements across faces
   void SmoothElementField (Omega_h::Mesh* o_mesh, std::string const &name);
 

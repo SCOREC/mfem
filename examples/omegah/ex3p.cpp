@@ -68,7 +68,8 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);//1k, 0.33mil
+      h[i] = 0.004/std::pow(std::abs(vtxError), 0.6);
+      //h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);//1k, 0.33mil
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -127,7 +128,7 @@ int main(int argc, char *argv[])
   // Read Omega_h mesh
   auto lib = oh::Library();
   oh::Mesh o_mesh(&lib);
-  oh::binary::read ("../../../mfem/data/omega_h/unitbox_cutQuart_1k_4p.osh",
+  oh::binary::read ("/lore/joshia5/develop/mfem/data/omega_h/unitbox_cutQuart_1k_4p.osh",
                     lib.world(), &o_mesh);
 
   //number of adaptation iterations
