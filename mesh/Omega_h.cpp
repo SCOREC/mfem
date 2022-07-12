@@ -290,12 +290,22 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     }
   }
 
+  // Set nodes for higher order mesh
+  int curved = o_mesh->is_curved();
+  if (curved > 0) {
+    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
+    Nodes = new ParGridFunction(this, &auxNodes);
+    Nodes->Vector::Swap(auxNodes);
+    this->edge_vertex = NULL;//TODO verify with morteza
+    own_nodes = 1;
+  }
+
   FinalizeMesh();
   // assume that fix_orientation is true, refine is false
 }
 
 ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
-                            bool fix_orientation, const int curved) {
+                            bool fix_orientation) {
   // Set the communicator for gtopo
   gtopo.SetComm(comm);
 
@@ -535,7 +545,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
 
   // Build group_stria and group_squad.
   // Also allocate shared_trias, shared_quads, and sface_lface.
-  // TODO simplex mesh considered for now
   group_stria.MakeI(groups.Size()-1);
   group_squad.MakeI(groups.Size()-1);
   for (int i = 0; i < sfaces.Size(); i++) {
@@ -623,7 +632,14 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   FinalizeParTopo();
 
   // Set nodes for higher order mesh
-  // n.a.: linear mesh
+  int curved = o_mesh->is_curved();
+  if (curved > 0) {
+    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
+    Nodes = new ParGridFunction(this, &auxNodes);
+    Nodes->Vector::Swap(auxNodes);
+    this->edge_vertex = NULL;//TODO verify with morteza
+    own_nodes = 1;
+  }
 
   Finalize(refine, fix_orientation);
 }
