@@ -781,27 +781,23 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
   fes = new FiniteElementSpace(m, fec, spDim, ordering);
   int data_size = fes->GetVSize();
 
-  // Read PUMI mesh data
+  // init grid fn data
    this->SetSize(data_size);
    double* oh_data = this->GetData();
 
-  // Assume all element type are the same i.e. tetrahedral
+  // Assume all element type are tet
   const FiniteElement* H1_elem = fes->GetFE(0);
   const IntegrationRule &All_nodes = H1_elem->GetNodes();
   int nnodes = All_nodes.Size();
 
   // Loop over elements
-
   int iel = 0;
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     Array<int> vdofs;
     fes->GetElementVDofs(iel, vdofs);
 
-    // Create PUMI element to interpolate
-
     // Vertices are already interpolated
-    for (int ip = 0; ip < nnodes; ip++)
-    {
+    for (int ip = 0; ip < nnodes; ip++) {
       // Take parametric coordinates of the node
       oh::Vector<3> param;
       param[0] = All_nodes.IntPoint(ip).x;
@@ -815,8 +811,7 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
                  o_mesh->ask_down(3,1).ab2b, o_mesh->get_adj(3,2).ab2b);
 
       // Fill the nodes list
-      for (int kk = 0; kk < spDim; ++kk)
-      {
+      for (int kk = 0; kk < spDim; ++kk) {
         int dof_ctr = ip + kk * nnodes;
         oh_data[vdofs[dof_ctr]] = phCrd[kk];
       }
