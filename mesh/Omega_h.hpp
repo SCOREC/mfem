@@ -48,7 +48,7 @@ class OmegaMesh : public Mesh
 public:
   /// Generate an MFEM mesh from a Omega_h mesh.
   OmegaMesh(Omega_h::Mesh* o_mesh, int refine = 0,
-            bool fix_orientation = true, const int curved = 0);
+            bool fix_orientation = true);
 
   /// Destroys Mesh.
   virtual ~OmegaMesh() {}

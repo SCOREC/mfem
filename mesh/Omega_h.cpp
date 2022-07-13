@@ -32,6 +32,7 @@
 #include "Omega_h_mark.hpp"
 #include "Omega_h_atomics.hpp"
 #include "Omega_h_metric.hpp"
+#include "Omega_h_beziers.hpp"
 
 namespace oh = Omega_h;
 
@@ -200,7 +201,7 @@ oh::HostRead<oh::LO> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
 namespace mfem {
 
 OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
-                      bool fix_orientation, const int curved) {
+                      bool fix_orientation) {
 
   const int nverts = o_mesh->oh::Mesh::nverts();
   const int nelems = o_mesh->oh::Mesh::nelems();
@@ -281,22 +282,18 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
   auto coords = o_mesh->oh::Mesh::coords();
   vertices.SetSize(NumOfVertices);
   oh::HostRead<oh::Real> coords_h(coords);
-  if (!curved) {
-    spaceDim = Dim;
-    for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
-      for (int d = 0; d < spaceDim; ++d) {
-        vertices[vtx](d) = coords_h[vtx*spaceDim + d];
-      }
+  spaceDim = Dim;
+  for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
+    for (int d = 0; d < spaceDim; ++d) {
+      vertices[vtx](d) = coords_h[vtx*spaceDim + d];
     }
   }
 
   // Set nodes for higher order mesh
   int curved = o_mesh->is_curved();
   if (curved > 0) {
-    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
-    Nodes = new ParGridFunction(this, &auxNodes);
-    Nodes->Vector::Swap(auxNodes);
-    this->edge_vertex = NULL;//TODO verify with morteza
+    Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
+    edge_vertex = NULL;//TODO verify with morteza
     own_nodes = 1;
   }
 
@@ -634,9 +631,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   // Set nodes for higher order mesh
   int curved = o_mesh->is_curved();
   if (curved > 0) {
-    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
-    Nodes = new ParGridFunction(this, &auxNodes);
-    Nodes->Vector::Swap(auxNodes);
+    Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
     this->edge_vertex = NULL;//TODO verify with morteza
     own_nodes = 1;
   }
@@ -804,7 +799,8 @@ void ParOmegaMesh::VertexFieldOmegaHtoMFEM (oh::Mesh* o_mesh,
 }
 
 // GridFunction Implementation needed for high order meshes
-GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
+GridFunctionOmega_h::GridFunctionOmega_h(
+    Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
 
   int spDim = m->SpaceDimension();
   // Note: default BasisType for 'fec' is GaussLobatto.
@@ -822,6 +818,15 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
   const IntegrationRule &All_nodes = H1_elem->GetNodes();
   int nnodes = All_nodes.Size();
 
+  //query data from omegah on host
+  auto const ev2v_h = oh::HostRead<oh::LO>(o_mesh->get_adj(1,0).ab2b);
+  auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,0).ab2b);
+  auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,1).ab2b);
+  auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
+  auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
+  auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
+  auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
+
   // Loop over elements
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     Array<int> vdofs;
@@ -837,10 +842,9 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
       param[2] = All_nodes.IntPoint(ip).z;
 
       // Compute the interpolating coordinates
-      auto phCrd = rgn_parametricToParent_3d(order, elem, o_mesh->get_adj(1,0).ab2b, 
-                 o_mesh->ask_down(3,0).ab2b, o_mesh->get_ctrlPts(0), 
-                 o_mesh->get_ctrlPts(1), o_mesh->get_ctrlPts(2), param, 
-                 o_mesh->ask_down(3,1).ab2b, o_mesh->get_adj(3,2).ab2b);
+      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+          re2e_h, rf2f_h);
 
       // Fill the nodes list
       for (int kk = 0; kk < spDim; ++kk) {
@@ -850,7 +854,8 @@ GridFunctionOmega_h(Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
     }
   }
 
-  fes_sequence = 0;
+  sequence = 0;
+  //fes_sequence = 0;TODO var name update 
 }
 
 } // end namespace mfem
