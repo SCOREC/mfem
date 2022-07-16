@@ -832,7 +832,13 @@ GridFunctionOmega_h::GridFunctionOmega_h(
     Array<int> vdofs;
     fes->GetElementVDofs(elem, vdofs);
 
-    // Vertices are already interpolated
+    // get downward vertices of MFEM element
+    mfem::Array<int> mfem_vid;
+    m->GetElementVertices(elem, mfem_vid);
+    for (int i=0; i< mfem_vid.Size(); ++i) {
+      printf("mfem vid %d\n", mfem_vid[i]);
+    }
+
     for (int ip = 0; ip < nnodes; ip++) {
       // Take parametric coordinates of the node
       oh::Vector<3> param;
@@ -855,7 +861,7 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   }
 
   sequence = 0;
-  //fes_sequence = 0;TODO var name update 
+  //fes_sequence = 0;TODO var name update for newer mfem versions
 }
 
 } // end namespace mfem
