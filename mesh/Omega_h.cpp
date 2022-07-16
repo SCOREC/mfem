@@ -293,7 +293,7 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
   int curved = o_mesh->is_curved();
   if (curved > 0) {
     Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
-    edge_vertex = NULL;//TODO verify with morteza
+    edge_vertex = NULL;
     own_nodes = 1;
   }
 
@@ -632,7 +632,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   int curved = o_mesh->is_curved();
   if (curved > 0) {
     Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
-    this->edge_vertex = NULL;//TODO verify with morteza
+    this->edge_vertex = NULL;
     own_nodes = 1;
   }
 
@@ -823,10 +823,15 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,0).ab2b);
   auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,1).ab2b);
   auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
+  if (!o_mesh->has_tag(0, "bezier_pts"))
+    o_mesh->add_tag<oh::Real>(0, "bezier_pts", 3, o_mesh->coords());
   auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
   auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
   auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
 
+  Vector v_c;
+  m->GetVertices(v_c);
+  auto m_nv = m->GetNV();
   // Loop over elements
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     Array<int> vdofs;
@@ -835,8 +840,15 @@ GridFunctionOmega_h::GridFunctionOmega_h(
     // get downward vertices of MFEM element
     mfem::Array<int> mfem_vid;
     m->GetElementVertices(elem, mfem_vid);
-    for (int i=0; i< mfem_vid.Size(); ++i) {
-      printf("mfem vid %d\n", mfem_vid[i]);
+    printf("elem %d\n", elem);
+    for (int i=0; i<mfem_vid.Size(); ++i) {
+      printf("i %d, mfem vid %d at {%f,%f,%f}, oh vid %d {%f,%f,%f} \n", 
+          i, mfem_vid[i],
+          v_c[0*m_nv+ mfem_vid[i]],v_c[1*m_nv+ mfem_vid[i]],v_c[2*m_nv+ mfem_vid[i]],
+          rv2v_h[elem*4+i],
+          vertCtrlPts_h[rv2v_h[elem*4+i]*3+0],
+          vertCtrlPts_h[rv2v_h[elem*4+i]*3+1],
+          vertCtrlPts_h[rv2v_h[elem*4+i]*3+2]);
     }
 
     for (int ip = 0; ip < nnodes; ip++) {

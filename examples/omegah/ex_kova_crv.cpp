@@ -33,6 +33,8 @@
 #include <Omega_h_metric.hpp>
 #include <Omega_h_timer.hpp>
 
+#include <Omega_h_beziers.hpp>
+
 using namespace std;
 using namespace mfem;
 
@@ -132,7 +134,10 @@ int main(int argc, char *argv[])
   oh::Mesh o_mesh(&lib);
   oh::binary::read ("/lore/joshia5/Meshes/curved/KovaGeomSim-quadratic_123tet_2p.osh",
                     lib.world(), &o_mesh);
-  int max_iter = 3;
+  oh::calc_quad_ctrlPts_from_interpPts(&o_mesh);
+  oh::elevate_curve_order_2to3(&o_mesh);
+
+  int max_iter = 1;
 
   for (int Itr = 0; Itr < max_iter; Itr++) {
     ParMesh *pmesh = new ParOmegaMesh (MPI_COMM_WORLD, &o_mesh);
@@ -235,7 +240,7 @@ int main(int argc, char *argv[])
     // test oh to mfem field transfer; segfaults
 
     // Save data in the ParaView format
-    ParaViewDataCollection paraview_dc("Example2P_crv_bef", pmesh);
+    ParaViewDataCollection paraview_dc("Example_crv_bef", pmesh);
     paraview_dc.SetPrefixPath("Kova");
     paraview_dc.SetLevelsOfDetail(1);
     paraview_dc.SetDataFormat(VTKFormat::BINARY);
