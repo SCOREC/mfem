@@ -2,7 +2,9 @@
 //
 // Description:  In this example, we define a simple finite element
 //               discretization of the Laplace problem -Delta u = 0
-//               box with curved model edge 
+//               Kova model. Dirichlet b.c. is applied to the curved faces,
+//               essential b.c. is on the back face far away from the curved,
+//               all other faces have natural b.c.
 //               
 //               Specifically, we discretize using a FE space of the specified
 //               order using a continuous space. We then apply
@@ -40,18 +42,17 @@ using namespace mfem;
 
 namespace oh = Omega_h;
 
-double f_239(const Vector& x) {
-  return 10. - (x(0) - 0.5)/ 0.05;
+double f_x(const Vector& x) {
+  return 10. - x(0);
+  //return 10. - (x(0) - 0.5)/ 0.5;
 }
-double f_243(const Vector& x) {
-  return 10. - (x(1) - 0.5)/ 0.05;
+double f_y(const Vector& x) {
+  return 10. - x(1);
+  //return 10. - (x(1) - 0.5)/ 0.5;
 }
 
 namespace { // anonymous namespace
 
-/* parts of this function is derived from the file
- * ugawg_linear.cpp of omega_h source code
- */
 template <oh::Int dim>
 static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
   *pOmesh) {
@@ -67,7 +68,7 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
     auto h = oh::Vector<dim>();
     auto vtxError = zz_error[v];
     for (oh::Int i = 0; i < dim; ++i)
-      h[i] = 0.001/std::pow(std::abs(vtxError), 0.6);// 1k to .33 mil 
+      h[i] = 0.01/std::pow(std::abs(vtxError), 0.6);
     auto m = diagonal(metric_eigenvalues_from_lengths(h));
     set_symm(target_metrics_w, v, m);
   };
@@ -76,9 +77,6 @@ static void set_target_metric(oh::Mesh* mesh, oh::Int scale, ParOmegaMesh
   mesh->set_tag(oh::VERT, "target_metric", oh::Reals(target_metrics_w));
 }
 
-/* parts of this function is derived from the file
- * ugawg_linear.cpp of omega_h source code
- */
 template <oh::Int dim>
 void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
               const oh::Int myid, ParOmegaMesh *pOmesh) {
@@ -97,6 +95,8 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
     writer.write();
   }
   auto opts = oh::AdaptOpts(mesh);
+  opts.should_swap = false;
+  opts.should_coarsen_slivers = false;
   opts.verbosity = oh::EXTRA_STATS;
   opts.length_histogram_max = 2.0;
   opts.max_length_allowed = opts.max_length_desired * 4.0;
@@ -125,7 +125,6 @@ int main(int argc, char *argv[])
   if (!mpi.Root()) { mfem::out.Disable(); mfem::err.Disable(); }
 
   // 2. Constant definition
-  int order = 1;
   double mat_val = 1.0;
   double nbc_val = 0.0;
 
@@ -137,6 +136,8 @@ int main(int argc, char *argv[])
   oh::calc_quad_ctrlPts_from_interpPts(&o_mesh);
   oh::elevate_curve_order_2to3(&o_mesh);
 
+  int order = o_mesh.get_max_order();
+  printf("order %d\n", order);
   int max_iter = 1;
 
   for (int Itr = 0; Itr < max_iter; Itr++) {
@@ -187,9 +188,9 @@ int main(int argc, char *argv[])
     ParLinearForm b(&fespace);
 
     // Set the Dirichlet values in the solution vector
-    FunctionCoefficient flinX_coeff(f_239);
+    FunctionCoefficient flinX_coeff(f_x);
     u.ProjectBdrCoefficient(flinX_coeff, dbc_linx);
-    FunctionCoefficient flinY_coeff(f_243);
+    FunctionCoefficient flinY_coeff(f_y);
     u.ProjectBdrCoefficient(flinY_coeff, dbc_liny);
 
     // Add the desired value for n.Grad(u) on the Neumann boundary
@@ -223,21 +224,17 @@ int main(int argc, char *argv[])
     ParFiniteElementSpace smooth_flux_fes(pmesh, &smooth_flux_fec, dim);
     L2ZienkiewiczZhuEstimator estimator(*integ, u, flux_fes, smooth_flux_fes);
     //create gridfunction from estimator
-    /* the next 4 lines were suggested by morteza */
     FiniteElementCollection *errorfec = new L2_FECollection(0, dim);
     ParFiniteElementSpace errorfespace(pmesh, errorfec);
     ParGridFunction l2errors(&errorfespace);
     l2errors = estimator.GetLocalErrors();
-    /* */
     const Vector mfem_err = estimator.GetLocalErrors();
     ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
-    pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
-
-    // test oh to mfem field transfer; segfaults
+    //pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
 
     // Save data in the ParaView format
     ParaViewDataCollection paraview_dc("Example_crv_bef", pmesh);
@@ -264,7 +261,7 @@ int main(int argc, char *argv[])
     strcat(Fname, iter_str);
     puts(Fname);
     fprintf(stderr, "itr adapt %d\n", Itr+1);
-    //if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
+    if ((Itr+1) < max_iter) run_case<3>(&o_mesh, Fname, Itr, myid, pOmesh);
 
   } // end adaptation loop
 
