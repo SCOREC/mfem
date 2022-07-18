@@ -4,7 +4,7 @@
 //               discretization of the Laplace problem -Delta u = 0
 //               Kova model. Dirichlet b.c. is applied to the curved faces,
 //               essential b.c. is on the back face far away from the curved,
-//               all other faces have natural b.c.
+//               all other faces have neumann b.c.
 //               
 //               Specifically, we discretize using a FE space of the specified
 //               order using a continuous space. We then apply
@@ -97,10 +97,10 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
   auto opts = oh::AdaptOpts(mesh);
   opts.should_swap = false;
   opts.should_coarsen_slivers = false;
-  opts.verbosity = oh::EXTRA_STATS;
-  opts.length_histogram_max = 2.0;
-  opts.max_length_allowed = opts.max_length_desired * 4.0;
-  opts.min_quality_allowed = 0.00001;
+  //opts.verbosity = oh::EXTRA_STATS;
+  //opts.length_histogram_max = 2.0;
+  //opts.max_length_allowed = opts.max_length_desired * 4.0;
+  //opts.min_quality_allowed = 0.1;
   opts.xfer_opts.type_map["zz_error"] = OMEGA_H_POINTWISE;
   oh::Now t0 = oh::now();
   while (approach_metric(mesh, opts)) {
