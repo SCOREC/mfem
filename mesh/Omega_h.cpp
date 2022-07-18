@@ -837,24 +837,21 @@ GridFunctionOmega_h::GridFunctionOmega_h(
     Array<int> vdofs;
     fes->GetElementVDofs(elem, vdofs);
 
-    // get downward vertices of MFEM element
+    // check downward vertices of MFEM element
     mfem::Array<int> mfem_vid;
     m->GetElementVertices(elem, mfem_vid);
-    printf("elem %d\n", elem);
     for (int i=0; i<mfem_vid.Size(); ++i) {
-      printf("i %d, mfem vid %d at {%f,%f,%f}, oh vid %d {%f,%f,%f} \n", 
-          i, mfem_vid[i],
-          v_c[0*m_nv+ mfem_vid[i]],v_c[1*m_nv+ mfem_vid[i]],v_c[2*m_nv+ mfem_vid[i]],
-          rv2v_h[elem*4+i],
-          vertCtrlPts_h[rv2v_h[elem*4+i]*3+0],
-          vertCtrlPts_h[rv2v_h[elem*4+i]*3+1],
-          vertCtrlPts_h[rv2v_h[elem*4+i]*3+2]);
+      for (int d=0; d<spDim; ++d) {
+        assert(
+          std::abs(
+            vertCtrlPts_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]])
+          < oh::EPSILON);
+      }
     }
 
     for (int ip = 0; ip < nnodes; ip++) {
       // Take parametric coordinates of the node
       oh::Vector<3> param;
-      //TODO check orientation of elms
       param[0] = All_nodes.IntPoint(ip).x;
       param[1] = All_nodes.IntPoint(ip).y;
       param[2] = All_nodes.IntPoint(ip).z;
@@ -870,6 +867,31 @@ GridFunctionOmega_h::GridFunctionOmega_h(
         oh_data[vdofs[dof_ctr]] = phCrd[kk];
       }
     }
+  }
+
+  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+    // Get the solution
+    ElementTransformation* eltr = m->GetElementTransformation(elem);
+    DenseMatrix elemNodes;
+    this->GetVectorValues(*eltr, All_nodes, elemNodes);
+
+    for (int ip = 0; ip < nnodes; ip++) {
+      // Take parametric coordinates of the node
+      oh::Vector<3> param;
+      param[0] = All_nodes.IntPoint(ip).x;
+      param[1] = All_nodes.IntPoint(ip).y;
+      param[2] = All_nodes.IntPoint(ip).z;
+      
+      // Compute the interpolating coordinates
+      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+          re2e_h, rf2f_h);
+      auto mfem_crd = elemNodes.GetColumn(ip);
+      for (int d=0; d<spDim; ++d) {
+        assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+      }
+    }
+
   }
 
   sequence = 0;
