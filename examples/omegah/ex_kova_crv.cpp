@@ -232,7 +232,6 @@ int main(int argc, char *argv[])
     ParOmegaMesh* pOmesh = dynamic_cast<ParOmegaMesh*>(pmesh);
     pOmesh->ElementFieldMFEMtoOmegaH (&o_mesh, mfem_err, dim, "zz_error");
     pOmesh->SmoothElementField (&o_mesh, "zz_error");
-    pOmesh->SmoothElementField (&o_mesh, "zz_error");
     pOmesh->ProjectFieldElementtoVertex (&o_mesh, "zz_error");
     //pOmesh->NodalFieldMFEMtoOmegaH (&o_mesh, &u, "temperature");
 
