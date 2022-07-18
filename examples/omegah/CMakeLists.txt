@@ -19,8 +19,6 @@ if (MFEM_USE_MPI)
     ex27p.cpp
     ex2p.cpp
     ex3p.cpp
-    ex_kova_crv.cpp
-    #inclusion_solver.cpp
   )
 endif()
 
@@ -52,8 +50,6 @@ set(EX6P_TEST_NP 4)
 set(EX27P_TEST_NP 4)
 set(EX2P_TEST_NP 4)
 set(EX3P_TEST_NP 4)
-set(EX_KOVA_CRV_TEST_NP 2)
-#set(INCLUSION_SOLVER_TEST_NP 4)
 
 # Add the tests: one test per source file.
 foreach(SRC_FILE ${OMEGAH_EXAMPLES_SRCS})
