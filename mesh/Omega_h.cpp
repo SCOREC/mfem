@@ -894,8 +894,7 @@ GridFunctionOmega_h::GridFunctionOmega_h(
 
   }
 
-  sequence = 0;
-  //fes_sequence = 0;TODO var name update for newer mfem versions
+  fes_sequence = 0;
 }
 
 } // end namespace mfem
