@@ -641,6 +641,26 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
 
 // Transfer information about scalar field to Omega_h
 // takes in omega_h mesh and mfem local field vector
+void OmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
+                const Vector mfem_field, const int dim,
+                std::string const &name) {
+
+  const int nents = o_mesh->nents(dim);
+  if(mfem_field.Size() != nents) 
+    fprintf(stderr, "field size = %d, nents=%d \n", mfem_field.Size(), nents);
+  MFEM_ASSERT(mfem_field.Size() == nents, "invalid size of local field");
+  oh::HostWrite<oh::Real> o_field(nents);
+
+  for (int ent = 0; ent < nents; ++ent) {
+    o_field[ent] = mfem_field(ent);
+  }
+  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
+
+  return;
+}
+
+// Transfer information about scalar field to Omega_h
+// takes in omega_h mesh and mfem local field vector
 void ParOmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
                 const Vector mfem_field, const int dim,
                 std::string const &name) {

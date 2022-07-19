@@ -50,6 +50,10 @@ public:
   OmegaMesh(Omega_h::Mesh* o_mesh, int refine = 0,
             bool fix_orientation = true);
 
+  // Transfer information about error estimator to Omega_h
+  void ElementFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, const Vector
+                                mfem_field, const int dim, std::string const &name);
+
   /// Destroys Mesh.
   virtual ~OmegaMesh() {}
 };
