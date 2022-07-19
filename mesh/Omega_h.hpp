@@ -88,7 +88,7 @@ public:
   virtual ~ParOmegaMesh() {}
 };
 
-/// Class for PUMI grid functions
+/// Class for Omega_h grid functions
 class GridFunctionOmega_h : public GridFunction
 {
 public:
@@ -97,6 +97,15 @@ public:
 
    /// Destroy the grid function.
    virtual ~GridFunctionOmega_h() { }
+};
+class ParGridFunctionOmega_h : public ParGridFunction
+{
+public:
+   /// Construct a GridFunction from a Omega_h mesh
+   ParGridFunctionOmega_h(ParMesh* m, Omega_h::Mesh* o_mesh, const int mesh_order);
+
+   /// Destroy the grid function.
+   virtual ~ParGridFunctionOmega_h() { }
 };
 
 } // namespace mfem
