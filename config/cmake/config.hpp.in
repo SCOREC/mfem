@@ -131,6 +131,9 @@
 // Enable MFEM functionality based on the Moonolith library
 #cmakedefine MFEM_USE_MOONOLITH
 
+// Enable MFEM functionality based on the Omega_h library
+#cmakedefine MFEM_USE_OMEGAH
+
 // Enable MFEM functionality based on the HiOp library
 #cmakedefine MFEM_USE_HIOP
 

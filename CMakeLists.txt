@@ -219,7 +219,7 @@ if (MFEM_USE_MPI)
     endif()
   endif()
 else()
-  set(PKGS_NEED_MPI SUPERLU MUMPS PETSC SLEPC STRUMPACK PUMI)
+  set(PKGS_NEED_MPI SUPERLU MUMPS PETSC SLEPC STRUMPACK PUMI OMEGAH)
   foreach(PKG IN LISTS PKGS_NEED_MPI)
     if (MFEM_USE_${PKG})
       message(STATUS "Disabling package ${PKG} - requires MPI")
@@ -394,6 +394,30 @@ if(MFEM_USE_MOONOLITH)
   endif()
 endif()
 
+# Omega_h
+if (MFEM_USE_OMEGAH)
+  # If OMEGAH_DIR was specified, only link to that directory,
+  # i.e. don't link to another installation in /usr/lib by mistake
+  find_package(Omega_h 9 REQUIRED
+    CONFIG PATHS ${OMEGAH_DIR} NO_DEFAULT_PATH)
+  if (Omega_h_FOUND)
+    set(OMEGAH_FOUND ${Omega_h_FOUND})
+    get_target_property(OMEGAH_INCLUDE_DIRS
+      Omega_h::omega_h INTERFACE_INCLUDE_DIRECTORIES)
+    set(OMEGAH_LIBRARIES Omega_h::omega_h)
+    #hack to remove '-Werror', '-Wall', and '-Wextra' flags - mfem has warnings
+    get_property(ohFlags TARGET Omega_h::omega_h PROPERTY
+      INTERFACE_COMPILE_OPTIONS)
+    set(ohFlagsMod)
+    foreach(arg ${ohFlags})
+      string(REPLACE "-W,-Wall,-Wextra,-Werror," "" argMod "${arg}")
+      list(APPEND ohFlagsMod ${argMod})
+    endforeach()
+    set_property(TARGET Omega_h::omega_h PROPERTY
+        INTERFACE_COMPILE_OPTIONS "${ohFlagsMod}")
+  endif()
+endif()
+
 # HiOp optimizer
 if (MFEM_USE_HIOP)
   find_package(HIOP REQUIRED)
@@ -480,11 +504,11 @@ endif()
 #    With newer versions of SuiteSparse which include METIS header using 64-bit
 #    integers, the METIS header (with 32-bit indices, as used by mfem) needs to
 #    be before SuiteSparse.
-set(MFEM_TPLS OPENMP HYPRE BLAS LAPACK SuperLUDist METIS SuiteSparse SUNDIALS
+set(MFEM_TPLS MPI_CXX OPENMP HYPRE BLAS LAPACK SuperLUDist METIS SuiteSparse SUNDIALS
     PETSC SLEPC MESQUITE MUMPS STRUMPACK AXOM FMS CONDUIT Ginkgo GNUTLS GSLIB
-    NETCDF MPFR PUMI HIOP POSIXCLOCKS MFEMBacktrace ZLIB OCCA CEED RAJA UMPIRE
+    NETCDF MPFR PUMI OMEGAH HIOP POSIXCLOCKS MFEMBacktrace ZLIB OCCA CEED RAJA UMPIRE
     ADIOS2 CUSPARSE MKL_CPARDISO AMGX CALIPER CODIPACK BENCHMARK PARELAG
-    MPI_CXX HIP HIPSPARSE MOONOLITH BLITZ ALGOIM ENZYME)
+    HIP HIPSPARSE MOONOLITH BLITZ ALGOIM ENZYME)
 
 # Add all *_FOUND libraries in the variable TPL_LIBRARIES.
 set(TPL_LIBRARIES "")

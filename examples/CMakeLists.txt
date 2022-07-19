@@ -188,6 +188,11 @@ if (MFEM_USE_PUMI)
   add_subdirectory(pumi)
 endif()
 
+# Include the examples/omegah directory if OMEGAH is enabled
+if (MFEM_USE_OMEGAH)
+  add_subdirectory(omegah)
+endif()
+
 # Include the examples/sundials directory if SUNDIALS is enabled.
 if (MFEM_USE_SUNDIALS)
   add_subdirectory(sundials)

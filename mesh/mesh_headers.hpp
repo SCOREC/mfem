@@ -42,4 +42,8 @@
 #include "pumi.hpp"
 #endif
 
+#ifdef MFEM_USE_OMEGAH
+#include "Omega_h.hpp"
+#endif
+
 #endif
