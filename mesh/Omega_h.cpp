@@ -278,6 +278,9 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     el->SetAttribute(Attr);
   }
 
+  //Apply the attributes to mesh after setting on ents
+  this->SetAttributes();
+
   // Fill vertices
   auto coords = o_mesh->oh::Mesh::coords();
   vertices.SetSize(NumOfVertices);
@@ -917,7 +920,7 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   fes_sequence = 0;
 }
 
-// GridFunction Implementation needed for high order meshes
+// ParGridFunction Implementation needed for high order meshes
 ParGridFunctionOmega_h::ParGridFunctionOmega_h(
     ParMesh* m, oh::Mesh* o_mesh, const int mesh_order) {
 
@@ -929,8 +932,8 @@ ParGridFunctionOmega_h::ParGridFunctionOmega_h(
   int data_size = fes->GetVSize();
 
   // init grid fn data
-   this->SetSize(data_size);
-   double* oh_data = this->GetData();
+  this->SetSize(data_size);
+  double* oh_data = this->GetData();
 
   // Assume all element type are tet
   const FiniteElement* H1_elem = fes->GetFE(0);
