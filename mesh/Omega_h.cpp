@@ -281,6 +281,9 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
   //Apply the attributes to mesh after setting on ents
   this->SetAttributes();
 
+  // The next two methods are called by FinalizeTopology() called below:
+  this->FinalizeTopology();
+
   // Fill vertices
   auto coords = o_mesh->oh::Mesh::coords();
   vertices.SetSize(NumOfVertices);
@@ -300,8 +303,7 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     own_nodes = 1;
   }
 
-  FinalizeMesh();
-  // assume that fix_orientation is true, refine is false
+  Finalize(refine, fix_orientation);
 }
 
 ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
