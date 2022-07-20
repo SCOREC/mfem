@@ -47,8 +47,8 @@ class OmegaMesh : public Mesh
 {
 public:
   /// Generate an MFEM mesh from a Omega_h mesh.
-  OmegaMesh(Omega_h::Mesh* o_mesh, int refine = 0,
-            bool fix_orientation = true);
+  OmegaMesh(Omega_h::Mesh* o_mesh, const int refine = 0,
+            const bool fix_orientation = true);
 
   // Transfer information about error estimator to Omega_h
   void ElementFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, const Vector
@@ -65,8 +65,8 @@ public:
   // ParOmegaMesh implementation
   // This function loads a parallel Omega_h mesh and returns the parallel MFEM mesh
   // corresponding to it.
-  ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, int refine = 0,
-            bool fix_orientation = true);
+  ParOmegaMesh(MPI_Comm comm, Omega_h::Mesh* o_mesh, const int refine = 0,
+            const bool fix_orientation = true);
 
   // Transfer information about error estimator to Omega_h
   void ElementFieldMFEMtoOmegaH (Omega_h::Mesh* o_mesh, const Vector
@@ -101,15 +101,6 @@ public:
 
    /// Destroy the grid function.
    virtual ~GridFunctionOmega_h() { }
-};
-class ParGridFunctionOmega_h : public ParGridFunction
-{
-public:
-   /// Construct a GridFunction from a Omega_h mesh
-   ParGridFunctionOmega_h(ParMesh* m, Omega_h::Mesh* o_mesh, const int mesh_order);
-
-   /// Destroy the grid function.
-   virtual ~ParGridFunctionOmega_h() { }
 };
 
 } // namespace mfem

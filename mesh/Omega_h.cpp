@@ -200,8 +200,8 @@ oh::HostRead<oh::LO> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
 
 namespace mfem {
 
-OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
-                      bool fix_orientation) {
+OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
+                      const bool fix_orientation) {
 
   const int nverts = o_mesh->oh::Mesh::nverts();
   const int nelems = o_mesh->oh::Mesh::nelems();
@@ -303,11 +303,11 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, int refine,
     own_nodes = 1;
   }
 
-  Finalize(refine, fix_orientation);
+  this->Finalize(refine, true);
 }
 
-ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
-                            bool fix_orientation) {
+ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, 
+    const int refine,const bool fix_orientation) {
   // Set the communicator for gtopo
   gtopo.SetComm(comm);
 
@@ -636,12 +636,14 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, int refine,
   // Set nodes for higher order mesh
   int curved = o_mesh->is_curved();
   if (curved > 0) {
-    Nodes = new ParGridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
+    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
+    Nodes = new ParGridFunction(this, &auxNodes);
+    Nodes->Vector::Swap(auxNodes);
     this->edge_vertex = NULL;
     own_nodes = 1;
   }
 
-  Finalize(refine, fix_orientation);
+  this->Finalize(refine, true);
 }
 
 // Transfer information about scalar field to Omega_h
@@ -837,105 +839,6 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   // init grid fn data
    this->SetSize(data_size);
    double* oh_data = this->GetData();
-
-  // Assume all element type are tet
-  const FiniteElement* H1_elem = fes->GetFE(0);
-  const IntegrationRule &All_nodes = H1_elem->GetNodes();
-  int nnodes = All_nodes.Size();
-
-  //query data from omegah on host
-  auto const ev2v_h = oh::HostRead<oh::LO>(o_mesh->get_adj(1,0).ab2b);
-  auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,0).ab2b);
-  auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,1).ab2b);
-  auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
-  if (!o_mesh->has_tag(0, "bezier_pts"))
-    o_mesh->add_tag<oh::Real>(0, "bezier_pts", 3, o_mesh->coords());
-  auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
-  auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
-  auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
-
-  Vector v_c;
-  m->GetVertices(v_c);
-  auto m_nv = m->GetNV();
-  // Loop over elements
-  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
-    Array<int> vdofs;
-    fes->GetElementVDofs(elem, vdofs);
-
-    // check downward vertices of MFEM element
-    mfem::Array<int> mfem_vid;
-    m->GetElementVertices(elem, mfem_vid);
-    for (int i=0; i<mfem_vid.Size(); ++i) {
-      for (int d=0; d<spDim; ++d) {
-        assert(
-          std::abs(
-            vertCtrlPts_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]])
-          < oh::EPSILON);
-      }
-    }
-
-    for (int ip = 0; ip < nnodes; ip++) {
-      // Take parametric coordinates of the node
-      oh::Vector<3> param;
-      param[0] = All_nodes.IntPoint(ip).x;
-      param[1] = All_nodes.IntPoint(ip).y;
-      param[2] = All_nodes.IntPoint(ip).z;
-
-      // Compute the interpolating coordinates
-      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-          re2e_h, rf2f_h);
-
-      // Fill the nodes list
-      for (int kk = 0; kk < spDim; ++kk) {
-        int dof_ctr = ip + kk * nnodes;
-        oh_data[vdofs[dof_ctr]] = phCrd[kk];
-      }
-    }
-  }
-
-  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
-    // Get the solution
-    ElementTransformation* eltr = m->GetElementTransformation(elem);
-    DenseMatrix elemNodes;
-    this->GetVectorValues(*eltr, All_nodes, elemNodes);
-
-    for (int ip = 0; ip < nnodes; ip++) {
-      // Take parametric coordinates of the node
-      oh::Vector<3> param;
-      param[0] = All_nodes.IntPoint(ip).x;
-      param[1] = All_nodes.IntPoint(ip).y;
-      param[2] = All_nodes.IntPoint(ip).z;
-      
-      // Compute the interpolating coordinates
-      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-          re2e_h, rf2f_h);
-      auto mfem_crd = elemNodes.GetColumn(ip);
-      for (int d=0; d<spDim; ++d) {
-        assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
-      }
-    }
-
-  }
-
-  fes_sequence = 0;
-}
-
-// ParGridFunction Implementation needed for high order meshes
-ParGridFunctionOmega_h::ParGridFunctionOmega_h(
-    ParMesh* m, oh::Mesh* o_mesh, const int mesh_order) {
-
-  int spDim = m->SpaceDimension();
-  // Note: default BasisType for 'fec' is GaussLobatto.
-  fec = new H1_FECollection(mesh_order, m->Dimension());
-  int ordering = Ordering::byVDIM; // x1y1z1/x2y2z2/...
-  fes = new FiniteElementSpace(m, fec, spDim, ordering);
-  int data_size = fes->GetVSize();
-
-  // init grid fn data
-  this->SetSize(data_size);
-  double* oh_data = this->GetData();
 
   // Assume all element type are tet
   const FiniteElement* H1_elem = fes->GetFE(0);
