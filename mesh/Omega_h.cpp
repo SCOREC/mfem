@@ -470,8 +470,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
     }
   } // end conditional for faces
 
-  int waiting = 0;
-  while (waiting);
   // Determine shared edges
   Array<Pair<long, int>> sedges;
   // Initially sedges[i].one holds the global edge id.
@@ -852,6 +850,7 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
   if (!o_mesh->has_tag(0, "bezier_pts"))
     o_mesh->add_tag<oh::Real>(0, "bezier_pts", 3, o_mesh->coords());
+  auto const coords_h = oh::HostRead<oh::Real>(o_mesh->coords());
   auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
   auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
   auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
@@ -868,11 +867,12 @@ GridFunctionOmega_h::GridFunctionOmega_h(
     mfem::Array<int> mfem_vid;
     m->GetElementVertices(elem, mfem_vid);
     for (int i=0; i<mfem_vid.Size(); ++i) {
+      assert(rv2v_h[elem*4+i] == mfem_vid[i]);
       for (int d=0; d<spDim; ++d) {
         assert(
           std::abs(
-            vertCtrlPts_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]])
-          < oh::EPSILON);
+            coords_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]]) < 
+          oh::EPSILON);
       }
     }
 
