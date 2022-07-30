@@ -285,25 +285,38 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
   this->FinalizeTopology();
 
   // Fill vertices
-  auto coords = o_mesh->oh::Mesh::coords();
+  int curved = o_mesh->is_curved();
   vertices.SetSize(NumOfVertices);
-  oh::HostRead<oh::Real> coords_h(coords);
-  spaceDim = Dim;
-  for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
-    for (int d = 0; d < spaceDim; ++d) {
-      vertices[vtx](d) = coords_h[vtx*spaceDim + d];
+  if (curved < 0) {
+    auto coords = o_mesh->oh::Mesh::coords();
+    oh::HostRead<oh::Real> coords_h(coords);
+    spaceDim = Dim;
+    for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
+      for (int d = 0; d < spaceDim; ++d) {
+        vertices[vtx](d) = coords_h[vtx*spaceDim + d];
+      }
     }
   }
 
   // Set nodes for higher order mesh
-  int curved = o_mesh->is_curved();
   if (curved > 0) {
     Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
     edge_vertex = NULL;
     own_nodes = 1;
+    spaceDim = Nodes->VectorDim();
+
+    // Set the 'vertices' from the 'Nodes'
+    for (int i = 0; i < spaceDim; i++) {
+      Vector vert_val;
+      Nodes->GetNodalValues(vert_val, i+1);
+      for (int j = 0; j < NumOfVertices; j++) {
+        vertices[j](i) = vert_val(j);
+      }
+    }
+
   }
 
-  this->Finalize(refine, true);
+  this->Finalize(refine, fix_orientation);
 }
 
 ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, 
@@ -641,7 +654,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
     own_nodes = 1;
   }
 
-  this->Finalize(refine, true);
+  this->Finalize(refine, fix_orientation);
 }
 
 // Transfer information about scalar field to Omega_h
@@ -855,9 +868,9 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
   auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
 
-  Vector v_c;
-  m->GetVertices(v_c);
-  auto m_nv = m->GetNV();
+  //Vector v_c;
+  //m->GetVertices(v_c);
+  //auto m_nv = m->GetNV();
   // Loop over elements
   for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
     Array<int> vdofs;
@@ -868,12 +881,14 @@ GridFunctionOmega_h::GridFunctionOmega_h(
     m->GetElementVertices(elem, mfem_vid);
     for (int i=0; i<mfem_vid.Size(); ++i) {
       assert(rv2v_h[elem*4+i] == mfem_vid[i]);
+      /*
       for (int d=0; d<spDim; ++d) {
         assert(
           std::abs(
             coords_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]]) < 
           oh::EPSILON);
       }
+      */
     }
 
     for (int ip = 0; ip < nnodes; ip++) {
