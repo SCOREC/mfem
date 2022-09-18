@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2022, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -16,7 +16,7 @@
 #include "fe.hpp"
 #include "coefficient.hpp"
 #include "fespace.hpp"
-#include "ceed/operator.hpp"
+#include "ceed/interface/operator.hpp"
 
 namespace mfem
 {
@@ -121,7 +121,7 @@ public:
        @param[in,out] y  The result Vector: @f$ y += G x @f$. */
    virtual void AddMultGradPA(const Vector &x, Vector &y) const;
 
-   /// Method for computing the diagonal of the gradient with partial assmebly.
+   /// Method for computing the diagonal of the gradient with partial assembly.
    /** The result Vector @a diag is an E-Vector. This method can be called only
        after the method AssembleGradPA() has been called.
 

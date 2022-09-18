@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2022, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -16,6 +16,7 @@
 #include "../linalg/sparsemat.hpp"
 #include "../mesh/mesh.hpp"
 #include "fe_coll.hpp"
+#include "doftrans.hpp"
 #include "restriction.hpp"
 #include <iostream>
 #include <unordered_map>
@@ -44,6 +45,14 @@ public:
 
    template <Type Ord>
    static void DofsToVDofs(int ndofs, int vdim, Array<int> &dofs);
+};
+
+/// @brief Type describing possible layouts for Q-vectors.
+/// @sa QuadratureInterpolator and FaceQuadratureInterpolator.
+enum class QVectorLayout
+{
+   byNODES,  ///< NQPT x VDIM x NE (values) / NQPT x VDIM x DIM x NE (grads)
+   byVDIM    ///< VDIM x NQPT x NE (values) / VDIM x DIM x NQPT x NE (grads)
 };
 
 template <> inline int
@@ -128,7 +137,9 @@ protected:
 
    // precalculated DOFs for each element, boundary element, and face
    mutable Table *elem_dof; // owned (except in NURBS FE space)
+   mutable Table *elem_fos; // face orientations by element index
    mutable Table *bdr_elem_dof; // owned (except in NURBS FE space)
+   mutable Table *bdr_elem_fos; // bdr face orientations by bdr element index
    mutable Table *face_dof; // owned; in var-order space contains variant 0 DOFs
 
    Array<int> dof_elem_array, dof_ldof_array;
@@ -136,6 +147,9 @@ protected:
    NURBSExtension *NURBSext;
    int own_ext;
    mutable Array<int> face_to_be; // NURBS FE space only
+
+   Array<DofTransformation*> DoFTrans;
+   mutable VDofTransformation VDoFTrans;
 
    /** Matrix representing the prolongation from the global conforming dofs to
        a set of intermediate partially conforming dofs, e.g. the dofs associated
@@ -188,6 +202,9 @@ protected:
 
    void Construct();
    void Destroy();
+
+   void ConstructDoFTrans();
+   void DestroyDoFTrans();
 
    void BuildElementToDofTable() const;
    void BuildBdrElementToDofTable() const;
@@ -283,12 +300,19 @@ protected:
       const FiniteElementSpace* fespace;
       DenseTensor localP[Geometry::NumGeom];
       Table* old_elem_dof; // Owned.
+      Table* old_elem_fos; // Owned.
+
+      Array<DofTransformation*> old_DoFTrans;
+      mutable VDofTransformation old_VDoFTrans;
+
+      void ConstructDoFTrans();
 
    public:
       /** Construct the operator based on the elem_dof table of the original
           (coarse) space. The class takes ownership of the table. */
       RefinementOperator(const FiniteElementSpace* fespace,
-                         Table *old_elem_dof/*takes ownership*/, int old_ndofs);
+                         Table *old_elem_dof/*takes ownership*/,
+                         Table *old_elem_fos/*takes ownership*/, int old_ndofs);
       RefinementOperator(const FiniteElementSpace *fespace,
                          const FiniteElementSpace *coarse_fes);
       virtual void Mult(const Vector &x, Vector &y) const;
@@ -302,6 +326,7 @@ protected:
       const FiniteElementSpace *fine_fes; // Not owned.
       DenseTensor localR[Geometry::NumGeom];
       Table *coarse_elem_dof; // Owned.
+      // Table *coarse_elem_fos; // Owned.
       Table coarse_to_fine;
       Array<int> coarse_to_ref_type;
       Array<Geometry::Type> ref_type_to_geom;
@@ -323,6 +348,7 @@ protected:
        the same vector dimension, vdim. */
    SparseMatrix *RefinementMatrix_main(const int coarse_ndofs,
                                        const Table &coarse_elem_dof,
+                                       const Table *coarse_elem_fos,
                                        const DenseTensor localP[]) const;
 
    void GetLocalRefinementMatrices(Geometry::Type geom,
@@ -333,10 +359,12 @@ protected:
    /** Calculate explicit GridFunction interpolation matrix (after mesh
        refinement). NOTE: consider using the RefinementOperator class instead
        of the fully assembled matrix, which can take a lot of memory. */
-   SparseMatrix* RefinementMatrix(int old_ndofs, const Table* old_elem_dof);
+   SparseMatrix* RefinementMatrix(int old_ndofs, const Table* old_elem_dof,
+                                  const Table* old_elem_fos);
 
    /// Calculate GridFunction restriction matrix after mesh derefinement.
-   SparseMatrix* DerefinementMatrix(int old_ndofs, const Table* old_elem_dof);
+   SparseMatrix* DerefinementMatrix(int old_ndofs, const Table* old_elem_dof,
+                                    const Table* old_elem_fos);
 
    /** @brief Return in @a localP the local refinement matrices that map
        between fespaces after mesh refinement. */
@@ -376,7 +404,7 @@ public:
    FiniteElementSpace();
 
    /** @brief Copy constructor: deep copy all data from @a orig except the Mesh,
-       the FiniteElementCollection, ans some derived data. */
+       the FiniteElementCollection, and some derived data. */
    /** If the @a mesh or @a fec pointers are NULL (default), then the new
        FiniteElementSpace will reuse the respective pointers from @a orig. If
        any of these pointers is not NULL, the given pointer will be used instead
@@ -405,6 +433,9 @@ public:
                       const FiniteElementCollection *fec,
                       int vdim = 1, int ordering = Ordering::byNODES)
    { Constructor(mesh, ext, fec, vdim, ordering); }
+
+   /// Copy assignment not supported
+   FiniteElementSpace& operator=(const FiniteElementSpace&) = delete;
 
    /// Returns the mesh
    inline Mesh *GetMesh() const { return mesh; }
@@ -614,10 +645,11 @@ public:
    int GetBdrAttribute(int i) const { return mesh->GetBdrAttribute(i); }
 
    /// Returns indices of degrees of freedom of element 'elem'.
-   virtual void GetElementDofs(int elem, Array<int> &dofs) const;
+   virtual DofTransformation *GetElementDofs(int elem, Array<int> &dofs) const;
 
    /// Returns indices of degrees of freedom for boundary element 'bel'.
-   virtual void GetBdrElementDofs(int bel, Array<int> &dofs) const;
+   virtual DofTransformation *GetBdrElementDofs(int bel,
+                                                Array<int> &dofs) const;
 
    /** @brief Returns the indices of the degrees of freedom for the specified
        face, including the DOFs for the edges and the vertices of the face. */
@@ -666,10 +698,10 @@ public:
    static void AdjustVDofs(Array<int> &vdofs);
 
    /// Returns indexes of degrees of freedom in array dofs for i'th element.
-   void GetElementVDofs(int i, Array<int> &vdofs) const;
+   DofTransformation *GetElementVDofs(int i, Array<int> &vdofs) const;
 
    /// Returns indexes of degrees of freedom for i'th boundary element.
-   void GetBdrElementVDofs(int i, Array<int> &vdofs) const;
+   DofTransformation *GetBdrElementVDofs(int i, Array<int> &vdofs) const;
 
    /// Returns indexes of degrees of freedom for i'th face element (2D and 3D).
    void GetFaceVDofs(int i, Array<int> &vdofs) const;
@@ -694,6 +726,8 @@ public:
        simply the sequence `0,1,2,...`; if there are any signed DOFs their sign
        is preserved. */
    void ReorderElementToDofTable();
+
+   const Table *GetElementToFaceOrientationTable() const { return elem_fos; }
 
    /** @brief Return a reference to the internal Table that stores the lists of
        scalar dofs, for each mesh element, as returned by GetElementDofs(). */
@@ -903,65 +937,14 @@ public:
    virtual ~FiniteElementSpace();
 };
 
-
-/// Class representing the storage layout of a QuadratureFunction.
-/** Multiple QuadratureFunction%s can share the same QuadratureSpace. */
-class QuadratureSpace
-{
-protected:
-   friend class QuadratureFunction; // Uses the element_offsets.
-
-   Mesh *mesh;
-   int order;
-   int size;
-
-   const IntegrationRule *int_rule[Geometry::NumGeom];
-   int *element_offsets; // scalar offsets; size = number of elements + 1
-
-   // protected functions
-
-   // Assuming mesh and order are set, construct the members: int_rule,
-   // element_offsets, and size.
-   void Construct();
-
-public:
-   /// Create a QuadratureSpace based on the global rules from #IntRules.
-   QuadratureSpace(Mesh *mesh_, int order_)
-      : mesh(mesh_), order(order_) { Construct(); }
-
-   /// Read a QuadratureSpace from the stream @a in.
-   QuadratureSpace(Mesh *mesh_, std::istream &in);
-
-   virtual ~QuadratureSpace() { delete [] element_offsets; }
-
-   /// Return the total number of quadrature points.
-   int GetSize() const { return size; }
-
-   /// Return the order of the quadrature rule(s) used by all elements.
-   int GetOrder() const { return order; }
-
-   /// Returns the mesh
-   inline Mesh *GetMesh() const { return mesh; }
-
-   /// Returns number of elements in the mesh.
-   inline int GetNE() const { return mesh->GetNE(); }
-
-   /// Get the IntegrationRule associated with mesh element @a idx.
-   const IntegrationRule &GetElementIntRule(int idx) const
-   { return *int_rule[mesh->GetElementBaseGeometry(idx)]; }
-
-   /// Write the QuadratureSpace to the stream @a out.
-   void Save(std::ostream &out) const;
-};
-
+/// @brief Return true if the mesh contains only one topology and the elements are tensor elements.
 inline bool UsesTensorBasis(const FiniteElementSpace& fes)
 {
-   // TODO: mixed meshes: return true if there is at least one tensor-product
-   // Geometry in the global mesh and the FE collection returns a
-   // TensorBasisElement for that Geometry?
-
+   Mesh & mesh = *fes.GetMesh();
+   const bool mixed = mesh.GetNumGeometries(mesh.Dimension()) > 1;
    // Potential issue: empty local mesh --> no element 0.
-   return dynamic_cast<const mfem::TensorBasisElement *>(fes.GetFE(0))!=nullptr;
+   return !mixed &&
+          dynamic_cast<const mfem::TensorBasisElement *>(fes.GetFE(0))!=nullptr;
 }
 
 }

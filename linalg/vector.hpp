@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2022, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -63,14 +63,19 @@ protected:
 
    Memory<double> data;
    int size;
+   bool global_seed_set = false;
 
 public:
 
-   /// Default constructor for Vector. Sets size = 0 and data = NULL.
-   Vector() { data.Reset(); size = 0; }
+   /** Default constructor for Vector. Sets size = 0, and calls Memory::Reset on
+       data through Memory<double>'s default constructor. */
+   Vector(): size(0) { }
 
    /// Copy constructor. Allocates a new data array and copies the data.
    Vector(const Vector &);
+
+   /// Move constructor. "Steals" data from its argument.
+   Vector(Vector&& v);
 
    /// @brief Creates vector of size s.
    /// @warning Entries are not initialized to zero!
@@ -81,6 +86,11 @@ public:
        with SetData(). */
    Vector(double *data_, int size_)
    { data.Wrap(data_, size_, false); size = size_; }
+
+   /** @brief Create a Vector referencing a sub-vector of the Vector @a base
+       starting at the given offset, @a base_offset, and size @a size_. */
+   Vector(Vector &base, int base_offset, int size_)
+      : data(base.data, base_offset, size_), size(size_) { }
 
    /// Create a Vector of size @a size_ using MemoryType @a mt.
    Vector(int size_, MemoryType mt)
@@ -229,10 +239,10 @@ public:
    const Memory<double> &GetMemory() const { return data; }
 
    /// Update the memory location of the vector to match @a v.
-   void SyncMemory(const Vector &v) { GetMemory().Sync(v.GetMemory()); }
+   void SyncMemory(const Vector &v) const { GetMemory().Sync(v.GetMemory()); }
 
    /// Update the alias memory location of the vector to match @a v.
-   void SyncAliasMemory(const Vector &v)
+   void SyncAliasMemory(const Vector &v) const
    { GetMemory().SyncAlias(v.GetMemory(),Size()); }
 
    /// Read the Vector data (host pointer) ownership flag.
@@ -273,6 +283,9 @@ public:
        assignment operator. */
    Vector &operator=(const Vector &v);
 
+   /// Move assignment
+   Vector &operator=(Vector&& v);
+
    /// Redefine '=' for vector = constant.
    Vector &operator=(double value);
 
@@ -293,6 +306,12 @@ public:
    Vector &operator+=(double c);
 
    Vector &operator+=(const Vector &v);
+
+   /// operator- is not supported. Use @ref subtract or @ref Add.
+   Vector &operator-(const Vector &v) = delete;
+
+   /// operator+ is not supported. Use @ref Add.
+   Vector &operator+(const Vector &v) = delete;
 
    /// (*this) += a * Va
    Vector &Add(const double a, const Vector &Va);
@@ -396,6 +415,8 @@ public:
 
    /// Set random values in the vector.
    void Randomize(int seed = 0);
+   /// Set global seed for random values in sequential calls to Randomize().
+   void SetGlobalSeed(int gseed);
    /// Returns the l2 norm of the vector.
    double Norml2() const;
    /// Returns the l_infinity norm of the vector.
@@ -498,15 +519,11 @@ inline int CheckFinite(const double *v, const int n)
 
 inline Vector::Vector(int s)
 {
+   MFEM_ASSERT(s>=0,"Unexpected negative size.");
+   size = s;
    if (s > 0)
    {
-      size = s;
       data.New(s);
-   }
-   else
-   {
-      size = 0;
-      data.Reset();
    }
 }
 

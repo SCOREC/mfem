@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2022, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -90,8 +90,8 @@ void ParNonlinearForm::Mult(const Vector &x, Vector &y) const
 
    const int N = ess_tdof_list.Size();
    const auto idx = ess_tdof_list.Read();
-   auto Y = y.ReadWrite();
-   MFEM_FORALL(i, N, Y[idx[i]] = 0.0; );
+   auto Y_RW = y.ReadWrite();
+   MFEM_FORALL(i, N, Y_RW[idx[i]] = 0.0; );
 }
 
 const SparseMatrix &ParNonlinearForm::GetLocalGradient(const Vector &x) const
@@ -264,6 +264,9 @@ void ParBlockNonlinearForm::Mult(const Vector &x, Vector &y) const
 
       ys_true.GetBlock(s).SetSubVector(*ess_tdofs[s], 0.0);
    }
+
+   ys_true.SyncFromBlocks();
+   y.SyncMemory(ys_true);
 }
 
 /// Return the local gradient matrix for the given true-dof vector x
@@ -280,7 +283,8 @@ const BlockOperator & ParBlockNonlinearForm::GetLocalGradient(
          xs_true.GetBlock(s), xs.GetBlock(s));
    }
 
-   BlockNonlinearForm::ComputeGradientBlocked(xs); // (re)assemble Grad with b.c.
+   // (re)assemble Grad without b.c. into 'Grads'
+   BlockNonlinearForm::ComputeGradientBlocked(xs);
 
    delete BlockGrad;
    BlockGrad = new BlockOperator(block_offsets);
