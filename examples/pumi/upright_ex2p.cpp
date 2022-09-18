@@ -238,11 +238,6 @@ int main(int argc, char *argv[])
    // 3. Read the SCOREC Mesh
    PCU_Comm_Init();
 #ifdef MFEM_USE_SIMMETRIX
-   const int licErr = pumiRegisterSimKeys();
-   if (licErr) {
-     fprintf(stderr, "ERROR: One or more Simmetrix license keys was invalid... exiting\n");
-     return 1;
-   }
    gmi_sim_start();
    gmi_register_sim();
 #endif
@@ -524,18 +519,18 @@ int main(int argc, char *argv[])
         apf::destroyField(ipfield);
 
         // 19. Perform MesAdapt
-        ma::Input* erinput = ma::configure(pumi_mesh, sizefield);
-        erinput->shouldFixShape = true;
-        erinput->shouldCoarsen = shouldCoarsen;
-        erinput->maximumIterations = 3;
+        auto erInputAdv = ma::makeAdvanced(ma::configure(pumi_mesh, sizefield));
+        erInputAdv->shouldFixShape = true;
+        erInputAdv->shouldCoarsen = shouldCoarsen;
+        erInputAdv->maximumIterations = 3;
         /* erinput->shouldRunMidParma = true; */
         if ( geom_order > 1)
         {
-            crv::adapt(erinput);
+            crv::adapt(erInputAdv);
         }
          else
         {
-            ma::adapt(erinput);
+            ma::adapt(erInputAdv);
         }
         pumi_mesh->verify();
 
