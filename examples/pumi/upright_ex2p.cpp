@@ -468,7 +468,7 @@ int main(int argc, char *argv[])
       HyprePCG *pcg = new HyprePCG(A);
       pcg->SetTol(1e-7);
       pcg->SetMaxIter(1000);
-      pcg->SetPrintLevel(2);
+      pcg->SetPrintLevel(1);
       pcg->SetPreconditioner(*amg);
       pcg->Mult(B, X);
 
