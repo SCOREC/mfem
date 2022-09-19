@@ -13,7 +13,8 @@
 //               vector on boundary elements with attribute 2, and zero
 //               otherwise.
 //Sample PUMI RUN
-//mpirun -np 2 ./pumi_upright_ex2p -m ../../data/pumi/parallel/upright/2p5kg1.smb -p ../../data/pumi/geom/upright_defeatured_geomsim.smd -bf ../../data/pumi/serial/boundary_upright.mesh -ar 0.04
+//mpirun -np 2 ./pumi_upright_ex2p -p ../../data/pumi/geom/upright_no_ring_geomsim.smd   -bf ../../data/pumi/geom/upright.def -m ../../data/pumi/parallel/upright/upright_no_ring_geomsim-10k-2p/
+//mpirun -np 1 ./pumi_upright_ex2p -p ../../data/pumi/geom/upright_no_ring_geomsim.smd   -bf ../../data/pumi/geom/upright.def -m ../../data/pumi/serial/upright_no_ring_geomsim-10k.smb
 //
 
 #include "mfem.hpp"
