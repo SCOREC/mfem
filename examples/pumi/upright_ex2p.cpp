@@ -238,6 +238,7 @@ int main(int argc, char *argv[])
    // 3. Read the SCOREC Mesh
    PCU_Comm_Init();
 #ifdef MFEM_USE_SIMMETRIX
+   Sim_readLicenseFile(0);
    gmi_sim_start();
    gmi_register_sim();
 #endif
