@@ -146,9 +146,9 @@ void getTraceStress(
   ParGridFunction u22(fes);
   ParGridFunction u33(fes);
 
-  u.GetDerivative(1,1,u11);
-  u.GetDerivative(2,2,u22);
-  u.GetDerivative(3,3,u33);
+  u.GetDerivative(1,0,u11);
+  u.GetDerivative(2,1,u22);
+  u.GetDerivative(3,2,u33);
 
 
   ParGridFunction divu(fes);
