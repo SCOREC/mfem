@@ -24,6 +24,8 @@
 #include "../../general/text.hpp" //text parsing
 
 #ifdef MFEM_USE_SIMMETRIX
+#include <MeshSim.h>
+#include <SimModel.h>
 #include <SimUtil.h>
 #include <gmi_sim.h>
 #endif
@@ -238,6 +240,8 @@ int main(int argc, char *argv[])
    // 3. Read the SCOREC Mesh
    PCU_Comm_Init();
 #ifdef MFEM_USE_SIMMETRIX
+   MS_init();
+   SimModel_start();
    Sim_readLicenseFile(0);
    gmi_sim_start();
    gmi_register_sim();
