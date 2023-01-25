@@ -208,9 +208,20 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
   const int dim = o_mesh->oh::Mesh::dim();
   auto ev2v = o_mesh->oh::Mesh::ask_down (dim, oh::VERT).ab2b;
   auto sv2v = o_mesh->oh::Mesh::ask_down (dim - 1, oh::VERT).ab2b;
+  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
   // s denotes side
   
-  auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  auto exposed_sides = oh::mark_rc_sides (o_mesh);
+  //fixed bug which counts sides classified on interior g_faces
+  //also in bdry
+  //auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  /*
+  oh::Write<oh::I8> exposed(o_mesh->oh::Mesh::nents(dim-1));
+  auto f = OMEGA_H_LAMBDA(oh::LO s) { 
+    if (s_class_dim[s] == (dim-1)) exposed[s] = 1;
+  };
+  oh::parallel_for(exposed.size(), mark_rcface, "mark_rc_face");
+  */
 
   const int nBdrEnts = count_exposedEnts (exposed_sides);
 
@@ -253,12 +264,12 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
   }
 
   // Create boundary
+  int count_fluxsurf_tris = 0;
   NumOfBdrElements = nBdrEnts;
   boundary.SetSize(NumOfBdrElements);
   // for storing classification Id
   auto s_class_ids = o_mesh->get_array<oh::ClassId>(dim - 1, "class_id");
   oh::HostRead<oh::LO> s_class_ids_h(s_class_ids);
-  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
   oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(bdr_type);
@@ -276,7 +287,13 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
     auto oh_id = boundary_h[bdry];
     if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
     el->SetAttribute(Attr);
+
+    //printf("attr id %d\n",Attr);
+    if ((Attr == 100) && (s_class_dim_h[oh_id] == 2)) {
+      ++count_fluxsurf_tris;
+    }
   }
+  printf("flux surf 2 tris %d\n",count_fluxsurf_tris);
 
   //Apply the attributes to mesh after setting on ents
   this->SetAttributes();
@@ -392,7 +409,8 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
 
   // create boundary info; s denotes side
   auto sv2v = o_mesh->oh::Mesh::ask_down (dim - 1, oh::VERT).ab2b;
-  auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  //auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  auto exposed_sides = oh::mark_rc_sides (o_mesh);
   const int nBdrEnts = count_exposedEnts (exposed_sides);
   // boundary elemIDs (ids as per omega_h, sized nBdrEnts)
   auto boundaryEnts = get_boundary(exposed_sides, nBdrEnts);
@@ -410,6 +428,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
   auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
   oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
 
+  int count_fluxsurf_tris = 0;
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(bdr_type);
     auto el = boundary[bdry];
@@ -426,7 +445,12 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
     auto oh_id = boundary_h[bdry];
     if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
     el->SetAttribute(Attr);
+
+    if ((Attr == 100) && (s_class_dim_h[oh_id] == (2))) {
+      ++count_fluxsurf_tris;
+    }
   }
+  printf("flux surf 2 tris %d\n",count_fluxsurf_tris);
 
   //Apply the attributes to mesh after setting on ents
   this->SetAttributes();
