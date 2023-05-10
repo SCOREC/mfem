@@ -121,11 +121,10 @@ void run_case(oh::Mesh* mesh, char const* vtk_path, oh::Int scale,
 int main(int argc, char *argv[])
 {
    // 1. Initialize MPI.
-  MPI_Session mpi;
   int num_procs, myid;
+  Mpi::Init(argc, argv);
   MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-  if (!mpi.Root()) { mfem::out.Disable(); mfem::err.Disable(); }
 
   // 2. Constant definition
   int order = 1;
