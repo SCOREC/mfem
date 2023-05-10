@@ -125,7 +125,7 @@ static void get_shared_ranks(oh::Mesh* o_mesh, oh::Int ent_dim,
   std::vector<oh::I32> full_src_ranks;
   std::vector<oh::I32> full_dest_ranks;
   std::vector<oh::LO> full_dest_indices;
-  auto my_rank = o_mesh->comm()->rank();
+  //auto my_rank = o_mesh->comm()->rank();
   for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
     auto begin = h_owners2copies[i_osh];
     auto end = h_owners2copies[i_osh + 1];
@@ -175,7 +175,7 @@ oh::HostRead<oh::LO> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
   OMEGA_H_CHECK(o_mesh->could_be_shared(dim));
   auto rank = o_mesh->comm()->rank();
   auto owners_r = o_mesh->ask_owners(dim).ranks;
-  auto owners_i = o_mesh->ask_owners(dim).idxs;
+  //auto owners_i = o_mesh->ask_owners(dim).idxs;
   auto nents = o_mesh->nents(dim);
   oh::Write<oh::LO> ent_is_shared(nents, -1, "ent_is_shared");
 
