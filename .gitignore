@@ -347,3 +347,7 @@ pkg.gitcommit
 
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints
+
+doConfig.sh
+tags
+"examples/omegah/\"
