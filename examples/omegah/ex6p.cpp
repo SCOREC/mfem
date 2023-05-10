@@ -354,12 +354,10 @@ int main(int argc, char *argv[])
    // 17. Save data in the ParaView format
 
   //create gridfunction from estimator
-  /* the next 4 lines were suggested by morteza */
   FiniteElementCollection *errorfec = new L2_FECollection(0, dim);
   ParFiniteElementSpace errorfespace(pmesh, errorfec);
   ParGridFunction l2errors(&errorfespace);
   l2errors = estimator.GetLocalErrors();
-  /* */
 
 
    ParaViewDataCollection paraview_dc("Example6P_5k", pmesh);

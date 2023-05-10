@@ -398,7 +398,8 @@ endif()
 if (MFEM_USE_OMEGAH)
   # If OMEGAH_DIR was specified, only link to that directory,
   # i.e. don't link to another installation in /usr/lib by mistake
-  find_package(Omega_h 9 REQUIRED
+  set (OMEGAH_MIN_VERSION "10")
+  find_package(Omega_h ${OMEGAH_MIN_VERSION} REQUIRED
     CONFIG PATHS ${OMEGAH_DIR} NO_DEFAULT_PATH)
   if (Omega_h_FOUND)
     set(OMEGAH_FOUND ${Omega_h_FOUND})

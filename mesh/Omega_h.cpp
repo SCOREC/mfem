@@ -264,7 +264,6 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
   }
 
   // Create boundary
-  int count_fluxsurf_tris = 0;
   NumOfBdrElements = nBdrEnts;
   boundary.SetSize(NumOfBdrElements);
   // for storing classification Id
@@ -288,12 +287,7 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
     if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
     el->SetAttribute(Attr);
 
-    //printf("attr id %d\n",Attr);
-    if ((Attr == 100) && (s_class_dim_h[oh_id] == 2)) {
-      ++count_fluxsurf_tris;
-    }
   }
-  printf("flux surf 2 tris %d\n",count_fluxsurf_tris);
 
   //Apply the attributes to mesh after setting on ents
   this->SetAttributes();
@@ -428,7 +422,6 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
   auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
   oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
 
-  int count_fluxsurf_tris = 0;
   for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
     boundary[bdry] = NewElement(bdr_type);
     auto el = boundary[bdry];
@@ -446,11 +439,7 @@ ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh,
     if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
     el->SetAttribute(Attr);
 
-    if ((Attr == 100) && (s_class_dim_h[oh_id] == (2))) {
-      ++count_fluxsurf_tris;
-    }
   }
-  printf("flux surf 2 tris %d\n",count_fluxsurf_tris);
 
   //Apply the attributes to mesh after setting on ents
   this->SetAttributes();
