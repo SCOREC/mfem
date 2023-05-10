@@ -263,7 +263,7 @@ if (MFEM_USE_MPI)
     endif()
   endif()
 else()
-  set(PKGS_NEED_MPI SUPERLU MUMPS PETSC SLEPC STRUMPACK PUMI)
+  set(PKGS_NEED_MPI SUPERLU MUMPS PETSC SLEPC STRUMPACK PUMI OMEGAH)
   foreach(PKG IN LISTS PKGS_NEED_MPI)
     if (MFEM_USE_${PKG})
       message(STATUS "Disabling package ${PKG} - requires MPI")
@@ -416,6 +416,31 @@ if(MFEM_USE_MOONOLITH)
     message(
       STATUS
       "MOONOLITH_LIBRARIES=${MOONOLITH_LIBRARIES}, MOONOLITH_INCLUDE_DIRS=${MOONOLITH_INCLUDE_DIRS}")
+  endif()
+endif()
+
+# Omega_h
+if (MFEM_USE_OMEGAH)
+  # If OMEGAH_DIR was specified, only link to that directory,
+  # i.e. don't link to another installation in /usr/lib by mistake
+  set (OMEGAH_MIN_VERSION "10")
+  find_package(Omega_h ${OMEGAH_MIN_VERSION} REQUIRED
+    CONFIG PATHS ${OMEGAH_DIR} NO_DEFAULT_PATH)
+  if (Omega_h_FOUND)
+    set(OMEGAH_FOUND ${Omega_h_FOUND})
+    get_target_property(OMEGAH_INCLUDE_DIRS
+      Omega_h::omega_h INTERFACE_INCLUDE_DIRECTORIES)
+    set(OMEGAH_LIBRARIES Omega_h::omega_h)
+    #hack to remove '-Werror', '-Wall', and '-Wextra' flags - mfem has warnings
+    get_property(ohFlags TARGET Omega_h::omega_h PROPERTY
+      INTERFACE_COMPILE_OPTIONS)
+    set(ohFlagsMod)
+    foreach(arg ${ohFlags})
+      string(REPLACE "-W,-Wall,-Wextra,-Werror," "" argMod "${arg}")
+      list(APPEND ohFlagsMod ${argMod})
+    endforeach()
+    set_property(TARGET Omega_h::omega_h PROPERTY
+        INTERFACE_COMPILE_OPTIONS "${ohFlagsMod}")
   endif()
 endif()
 

@@ -48,6 +48,7 @@ option(MFEM_USE_SIDRE "Enable Axom/Sidre usage" OFF)
 option(MFEM_USE_FMS "Enable FMS usage" OFF)
 option(MFEM_USE_CONDUIT "Enable Conduit usage" OFF)
 option(MFEM_USE_PUMI "Enable PUMI" OFF)
+option(MFEM_USE_OMEGAH "Enable Omega_h" OFF)
 option(MFEM_USE_HIOP "Enable HiOp" OFF)
 option(MFEM_USE_CUDA "Enable CUDA" OFF)
 option(MFEM_USE_HIP "Enable HIP" OFF)
@@ -216,6 +217,9 @@ set(Axom_REQUIRED_PACKAGES "Conduit/relay/blueprint" CACHE STRING
 
 set(PUMI_DIR "${MFEM_DIR}/../pumi-2.1.0" CACHE STRING
     "Directory where PUMI is installed")
+
+set(OMEGAH_DIR "${MFEM_DIR}/../omegah" CACHE STRING
+    "Directory where Omega_h is installed")
 
 set(HIOP_DIR "${MFEM_DIR}/../hiop/install" CACHE STRING
     "Directory where HiOp is installed")

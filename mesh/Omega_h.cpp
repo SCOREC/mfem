@@ -1,0 +1,957 @@
+// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// at the Lawrence Livermore National Laboratory. All Rights reserved. See files
+// LICENSE and NOTICE for details. LLNL-CODE-806117.
+//
+// This file is part of the MFEM library. For more information and source code
+// availability visit https://mfem.org.
+//
+// MFEM is free software; you can redistribute it and/or modify it under the
+// terms of the BSD-3 license. We welcome feedback and contributions, see file
+// CONTRIBUTING.md for details.
+
+#include "Omega_h.hpp"
+#ifdef MFEM_USE_OMEGAH
+
+#include "mesh_headers.hpp"
+
+#include "../fem/fem.hpp"
+#include "../general/sort_pairs.hpp"
+#include "../general/text.hpp"
+#include "../general/sets.hpp"
+
+#include <iostream>
+#include <sstream>
+#include <fstream>
+#include <limits>
+#include <cmath>
+#include <cstring>
+#include <ctime>
+
+#include "Omega_h_for.hpp"
+#include "Omega_h_element.hpp"
+#include "Omega_h_mark.hpp"
+#include "Omega_h_atomics.hpp"
+#include "Omega_h_metric.hpp"
+#include "Omega_h_beziers.hpp"
+
+namespace oh = Omega_h;
+
+namespace { // anonymous namespace
+
+int count_exposedEnts (oh::Read<oh::I8> is_exposed) {
+  auto nents = is_exposed.size();
+  oh::Write<oh::LO> nBdrEnts (1, 0);
+  auto get_numExposed = OMEGA_H_LAMBDA (oh::LO ent) {
+    if (is_exposed[ent]) {
+      oh::atomic_increment(&nBdrEnts[0]);
+    }
+  };
+  oh::parallel_for(nents, get_numExposed, "get_numExposed");
+  oh::HostRead<oh::LO> nbe(nBdrEnts);
+
+  // Check if boundary is detected
+  if (!nbe[0]) {
+    MFEM_ABORT ("boundary elements not detected");
+  }
+
+  return nbe[0];
+}
+
+oh::Read<oh::LO> get_boundary (oh::Read<oh::I8> exposed_ents,
+  const int num_bdryEnts) {
+  auto n_expoEnts = exposed_ents.size(); // equals total no. of ents
+  oh::HostWrite<oh::LO> iter_exposedSides (1, 0, 0);
+  oh::HostRead<oh::I8> exposed_ents_h(exposed_ents);
+  oh::HostWrite<oh::LO> boundary_h(num_bdryEnts, -1, 0);
+  for (oh::LO ent = 0; ent < n_expoEnts; ++ent) {
+    if (exposed_ents_h[ent]) {
+      boundary_h[iter_exposedSides[0]] = ent;
+      ++iter_exposedSides[0];
+    }
+  }
+  return read(boundary_h.write());
+}
+
+oh::Read<oh::LO> get_bdry2Verts (oh::Mesh* o_mesh,
+  oh::Read<oh::LO> sv2v, oh::Read<oh::LO> bdryEnts) {
+  const int bDim = o_mesh->oh::Mesh::dim() - 1;
+  auto b2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, bDim, oh::VERT);
+  oh::Write<oh::LO> bv2v (bdryEnts.size()*b2v_degree);
+  auto get_bdrVerts = OMEGA_H_LAMBDA (oh::LO b) {
+    for (oh::LO v = 0; v < b2v_degree; ++v) {
+      bv2v[b*b2v_degree + v] = sv2v[bdryEnts[b]*b2v_degree + v];
+      // get the id of the boundary element's adjacent verts
+    }
+  };
+  oh::parallel_for (bdryEnts.size(), get_bdrVerts, "get_bdrVerts");
+  return read(bv2v);
+}
+
+int get_type (int dim) {
+  int dim_type = -1;
+  if (dim == 3) {
+    dim_type = mfem::Geometry::TETRAHEDRON;
+  }
+  else if (dim == 2) {
+    dim_type = mfem::Geometry::TRIANGLE;
+  }
+  else if (dim == 1) {
+    dim_type = mfem::Geometry::SEGMENT;
+  }
+  else if (dim == 0) {
+    dim_type = mfem::Geometry::POINT;
+  }
+  else {
+    Omega_h_fail ("Error: Improper dimension");
+  }
+
+  return dim_type;
+}
+
+/* based on a private fn form_sharing from oh-dolfin.c */
+static void get_shared_ranks(oh::Mesh* o_mesh, oh::Int ent_dim,
+    std::map<std::int32_t, std::set<unsigned int>>* shared_ents) {
+  auto n = o_mesh->nents(ent_dim);
+  if (!o_mesh->could_be_shared(ent_dim)) {
+    return;
+  }
+  auto dist = o_mesh->ask_dist(ent_dim).invert();
+  auto d_owners2copies = dist.roots2items();
+  auto d_copies2rank = dist.items2ranks();
+  auto d_copies2indices = dist.items2dest_idxs();
+  auto h_owners2copies = oh::HostRead<oh::LO>(d_owners2copies);
+  auto h_copies2rank = oh::HostRead<oh::I32>(d_copies2rank);
+  auto h_copies2indices = oh::HostRead<oh::LO>(d_copies2indices);
+  std::vector<oh::I32> full_src_ranks;
+  std::vector<oh::I32> full_dest_ranks;
+  std::vector<oh::LO> full_dest_indices;
+  auto my_rank = o_mesh->comm()->rank();
+  for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
+    auto begin = h_owners2copies[i_osh];
+    auto end = h_owners2copies[i_osh + 1];
+    if (end - begin <= 1) continue;
+    for (oh::LO copy = begin; copy < end; ++copy) {
+      auto dest_rank = h_copies2rank[copy];
+      auto dest_index = h_copies2indices[copy];
+      for (oh::LO copy2 = begin; copy2 < end; ++copy2) {
+        auto src_rank = h_copies2rank[copy2];
+        full_src_ranks.push_back(src_rank);
+        full_dest_ranks.push_back(dest_rank);
+        full_dest_indices.push_back(dest_index);
+      }
+    }
+  }
+  auto h_full_src_ranks = oh::HostWrite<oh::I32>(oh::LO(full_src_ranks.size()));
+  auto h_full_dest_ranks = oh::HostWrite<oh::I32>(oh::LO(full_src_ranks.size()));
+  auto h_full_dest_indices = oh::HostWrite<oh::I32>(oh::LO(full_dest_indices.size()));
+  for (oh::LO i = 0; i < h_full_src_ranks.size(); ++i) {
+    h_full_src_ranks[i] = full_src_ranks[size_t(i)];
+    h_full_dest_ranks[i] = full_dest_ranks[size_t(i)];
+    h_full_dest_indices[i] = full_dest_indices[size_t(i)];
+  }
+  auto d_full_src_ranks = oh::Read<oh::I32>(h_full_src_ranks.write());
+  auto d_full_dest_ranks = oh::Read<oh::I32>(h_full_dest_ranks.write());
+  auto d_full_dest_indices = oh::Read<oh::I32>(h_full_dest_indices.write());
+  auto dist2 = oh::Dist();
+  dist2.set_parent_comm(o_mesh->comm());
+  dist2.set_dest_ranks(d_full_dest_ranks);
+  dist2.set_dest_idxs(d_full_dest_indices, n);
+  auto d_exchd_full_src_ranks = dist2.exch(d_full_src_ranks, 1);
+  auto d_shared2ranks = dist2.invert().roots2items();
+  auto h_exchd_full_src_ranks = oh::HostRead<oh::I32>(d_exchd_full_src_ranks);
+  auto h_shared2ranks = oh::HostRead<oh::LO>(d_shared2ranks);
+
+  for (oh::LO i_osh = 0; i_osh < n; ++i_osh) {
+    auto begin = h_shared2ranks[i_osh];
+    auto end = h_shared2ranks[i_osh + 1];
+    for (auto j = begin; j < end; ++j) {
+      auto rank = h_exchd_full_src_ranks[j];
+      (*shared_ents)[i_osh].insert(unsigned(rank));
+    }
+  }
+}
+
+oh::HostRead<oh::LO> mark_shared_ents (oh::Mesh* o_mesh, int dim) {
+  OMEGA_H_CHECK(o_mesh->could_be_shared(dim));
+  auto rank = o_mesh->comm()->rank();
+  auto owners_r = o_mesh->ask_owners(dim).ranks;
+  auto owners_i = o_mesh->ask_owners(dim).idxs;
+  auto nents = o_mesh->nents(dim);
+  oh::Write<oh::LO> ent_is_shared(nents, -1, "ent_is_shared");
+
+  auto dist = o_mesh->ask_dist(dim).invert();
+  auto d_owners2copies = dist.roots2items();
+
+  auto check_owner = OMEGA_H_LAMBDA (oh::LO ent) {
+    if (owners_r[ent] != rank) {
+      ent_is_shared[ent] = 1;
+    }
+    else if ((d_owners2copies[ent+1] - d_owners2copies[ent]) > 1) {
+      ent_is_shared[ent] = 1;
+    }
+  };
+  oh::parallel_for(nents, check_owner, "check_owner");
+  oh::HostRead<oh::LO> ent_is_shared_h(ent_is_shared);
+
+  return ent_is_shared_h;
+}
+
+} // end anonymous namespace
+
+namespace mfem {
+
+OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
+                      const bool fix_orientation) {
+
+  const int nverts = o_mesh->oh::Mesh::nverts();
+  const int nelems = o_mesh->oh::Mesh::nelems();
+  const int dim = o_mesh->oh::Mesh::dim();
+  auto ev2v = o_mesh->oh::Mesh::ask_down (dim, oh::VERT).ab2b;
+  auto sv2v = o_mesh->oh::Mesh::ask_down (dim - 1, oh::VERT).ab2b;
+  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
+  // s denotes side
+  
+  auto exposed_sides = oh::mark_rc_sides (o_mesh);
+  //fixed bug which counts sides classified on interior g_faces
+  //also in bdry
+  //auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  /*
+  oh::Write<oh::I8> exposed(o_mesh->oh::Mesh::nents(dim-1));
+  auto f = OMEGA_H_LAMBDA(oh::LO s) { 
+    if (s_class_dim[s] == (dim-1)) exposed[s] = 1;
+  };
+  oh::parallel_for(exposed.size(), mark_rcface, "mark_rc_face");
+  */
+
+  const int nBdrEnts = count_exposedEnts (exposed_sides);
+
+  auto boundaryEnts = get_boundary(exposed_sides, nBdrEnts);
+  // boundary elemIDs
+
+  auto bv2v = get_bdry2Verts(o_mesh, sv2v, boundaryEnts);
+  // boundary elems to verts adjacency
+
+  NumOfVertices = nverts;
+  NumOfElements = nelems;
+  Dim = dim;
+  elements.SetSize(NumOfElements);
+
+  // Create elements
+  const int dim_type = get_type(dim);
+  const int bdr_type = get_type(dim-1);
+  oh::HostRead<oh::LO> ev2v_h(ev2v);
+  oh::HostRead<oh::LO> boundary_h(boundaryEnts);
+  oh::HostRead<oh::LO> bv2v_h(bv2v);
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
+  auto b2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim - 1, oh::VERT);
+  // for storing classification Id
+  auto c_class_ids = o_mesh->get_array<oh::ClassId>(dim, "class_id");
+  oh::HostRead<oh::LO> c_class_ids_h(c_class_ids);
+  // Create elements
+  for (int elem = 0; elem < nelems; ++elem) {
+    elements[elem] = NewElement(dim_type); 
+    auto el = elements[elem];
+    int nv, *v;
+    nv = el->GetNVertices();
+    v  = el->GetVertices();
+
+    for (int i = 0; i < nv; ++i) {
+      v[i] = ev2v_h[elem*e2v_degree + i];
+    }
+
+    int Attr = c_class_ids_h[elem];
+    el->SetAttribute(Attr);
+  }
+
+  // Create boundary
+  NumOfBdrElements = nBdrEnts;
+  boundary.SetSize(NumOfBdrElements);
+  // for storing classification Id
+  auto s_class_ids = o_mesh->get_array<oh::ClassId>(dim - 1, "class_id");
+  oh::HostRead<oh::LO> s_class_ids_h(s_class_ids);
+  oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
+  for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
+    boundary[bdry] = NewElement(bdr_type);
+    auto el = boundary[bdry];
+    int nv, *v;
+    nv = el->GetNVertices();
+    v  = el->GetVertices();
+
+    for (int i = 0; i < nv; ++i) {
+      v[i] = bv2v_h[bdry*b2v_degree + i];
+    }
+
+    // Assign attribute for sides
+    int Attr = 1;
+    auto oh_id = boundary_h[bdry];
+    if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
+    el->SetAttribute(Attr);
+
+  }
+
+  //Apply the attributes to mesh after setting on ents
+  this->SetAttributes();
+
+  // The next two methods are called by FinalizeTopology() called below:
+  this->FinalizeTopology();
+
+  // Fill vertices
+  int curved = o_mesh->is_curved();
+  vertices.SetSize(NumOfVertices);
+  if (curved < 0) {
+    auto coords = o_mesh->oh::Mesh::coords();
+    oh::HostRead<oh::Real> coords_h(coords);
+    spaceDim = Dim;
+    for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
+      for (int d = 0; d < spaceDim; ++d) {
+        vertices[vtx](d) = coords_h[vtx*spaceDim + d];
+      }
+    }
+  }
+
+  // Set nodes for higher order mesh
+  if (curved > 0) {
+    Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
+    edge_vertex = NULL;
+    own_nodes = 1;
+    spaceDim = Nodes->VectorDim();
+
+    // Set the 'vertices' from the 'Nodes'
+    for (int i = 0; i < spaceDim; i++) {
+      Vector vert_val;
+      Nodes->GetNodalValues(vert_val, i+1);
+      for (int j = 0; j < NumOfVertices; j++) {
+        vertices[j](i) = vert_val(j);
+      }
+    }
+
+  }
+
+  this->Finalize(refine, fix_orientation);
+}
+
+ParOmegaMesh::ParOmegaMesh (MPI_Comm comm, oh::Mesh* o_mesh, 
+    const int refine,const bool fix_orientation) {
+  // Set the communicator for gtopo
+  gtopo.SetComm(comm);
+
+  MyComm = comm;
+  MPI_Comm_size(MyComm, &NRanks);
+  MPI_Comm_rank(MyComm, &MyRank);
+
+  Dim = o_mesh->dim();
+  spaceDim = Dim;
+
+  // Global numbering of vertices. This is necessary to build a local numbering
+  // that has the same ordering in each process.
+  auto vert_globals = o_mesh->globals(oh::VERT);
+  oh::HostRead<oh::GO> vert_globals_h(vert_globals);
+  // Take this process global vertex IDs and sort
+  Array<Pair<long,int>> thisVertIds(o_mesh->nverts());
+  for (int i = 0; i < o_mesh->nverts(); ++i) {
+    long id = vert_globals_h[i];
+    thisVertIds[i] = Pair<long,int>(id, i);
+  }
+  thisVertIds.Sort();
+  // Set thisVertIds[i].one = j where j is such that thisVertIds[j].two = i.
+  // Thus, the mapping i -> thisVertIds[i].one is the inverse of the mapping
+  // j -> thisVertIds[j].two.
+  for (int j = 0; j < thisVertIds.Size(); ++j) {
+    const int i = thisVertIds[j].two;
+    thisVertIds[i].one = j;
+  }
+
+  // Set the coordinates of the vertices.
+  NumOfVertices = thisVertIds.Size();
+  vertices.SetSize(NumOfVertices);
+  auto coords = o_mesh->coords();
+  oh::HostRead<oh::Real> coords_h(coords);
+  for (unsigned int vtx = 0; vtx < NumOfVertices; ++vtx) {
+    for (int d = 0; d < spaceDim; ++d) {
+      vertices[vtx](d) = coords_h[vtx*spaceDim + d];
+    }
+  }
+
+  // Fill the elements
+  NumOfElements = o_mesh->nelems();
+  elements.SetSize(NumOfElements);
+  // Read elements from Omega_h Mesh
+  const int dim = o_mesh->oh::Mesh::dim();
+  auto ev2v = o_mesh->oh::Mesh::ask_down (dim, oh::VERT).ab2b;
+  oh::HostRead<oh::LO> ev2v_h(ev2v);
+  auto e2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim, oh::VERT);
+  const int dim_type = get_type(dim);
+  const int bdr_type = get_type(dim-1);
+  // for storing classification Id
+  auto c_class_ids = o_mesh->get_array<oh::ClassId>(dim, "class_id");
+  oh::HostRead<oh::LO> c_class_ids_h(c_class_ids);
+  // Create elements
+  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+    elements[elem] = NewElement(dim_type); 
+    auto el = elements[elem];
+    int nv, *v;
+    nv = el->GetNVertices();
+    v  = el->GetVertices();
+
+    for (int i = 0; i < nv; ++i) {
+      v[i] = ev2v_h[elem*e2v_degree + i];
+    }
+
+    int Attr = c_class_ids_h[elem];
+    el->SetAttribute(Attr);
+  }
+
+  // create boundary info; s denotes side
+  auto sv2v = o_mesh->oh::Mesh::ask_down (dim - 1, oh::VERT).ab2b;
+  //auto exposed_sides = oh::mark_exposed_sides (o_mesh);
+  auto exposed_sides = oh::mark_rc_sides (o_mesh);
+  const int nBdrEnts = count_exposedEnts (exposed_sides);
+  // boundary elemIDs (ids as per omega_h, sized nBdrEnts)
+  auto boundaryEnts = get_boundary(exposed_sides, nBdrEnts);
+  // boundary elems to verts adjacency
+  auto bv2v = get_bdry2Verts(o_mesh, sv2v, boundaryEnts);
+  oh::HostRead<oh::LO> boundary_h(boundaryEnts);
+  oh::HostRead<oh::LO> bv2v_h(bv2v);
+  auto b2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, dim - 1, oh::VERT);
+  // Create boundary
+  NumOfBdrElements = nBdrEnts;
+  boundary.SetSize(NumOfBdrElements);
+  // for storing classification Id
+  auto s_class_ids = o_mesh->get_array<oh::ClassId>(dim - 1, "class_id");
+  oh::HostRead<oh::LO> s_class_ids_h(s_class_ids);
+  auto s_class_dim = o_mesh->get_array<oh::I8>(dim - 1, "class_dim");
+  oh::HostRead<oh::I8> s_class_dim_h(s_class_dim);
+
+  for (int bdry = 0; bdry < NumOfBdrElements; ++bdry) {
+    boundary[bdry] = NewElement(bdr_type);
+    auto el = boundary[bdry];
+    int nv, *v;
+    nv = el->GetNVertices();
+    v  = el->GetVertices();
+
+    for (int i = 0; i < nv; ++i) {
+      v[i] = bv2v_h[bdry*b2v_degree + i];
+    }
+
+    // Assign attribute for sides
+    int Attr = 1;
+    auto oh_id = boundary_h[bdry];
+    if (s_class_dim_h[oh_id] == (dim - 1)) Attr = s_class_ids_h[oh_id];
+    el->SetAttribute(Attr);
+
+  }
+
+  //Apply the attributes to mesh after setting on ents
+  this->SetAttributes();
+
+  // The next two methods are called by FinalizeTopology() called below:
+  this->FinalizeTopology();
+
+  ListOfIntegerSets  groups;
+  IntegerSet         group;
+
+  // The first group is the local one
+  group.Recreate(1, &MyRank);
+  groups.Insert(group);
+
+  MFEM_ASSERT(Dim >= 3 || GetNFaces() == 0,
+             "[proc " << MyRank << "]: invalid state");
+
+  // Determine shared faces
+  Array<Pair<long, int>> sfaces;
+  // Initially sfaces[i].one holds the global face id.
+  // Then it is replaced by the group id of the shared face.
+  // Initially sfaces[i].two holds the local face id.
+  if (Dim > 2) {
+    // Number the faces globally and enumerate the local shared faces
+    // following the global enumeration. This way we ensure that the ordering
+    // of the shared faces within each group (of processors) is the same in
+    // each processor in the group.
+    oh::HostRead<oh::GO> GlobalFaceNum (o_mesh->globals(2));
+    auto is_shared = mark_shared_ents(o_mesh, 2);
+
+    for (int ent = 0; ent < o_mesh->nfaces(); ++ent) {
+      if (is_shared[ent] == 1) {
+        long id = GlobalFaceNum[ent];
+        sfaces.Append(Pair<long,int>(id, ent));
+      }
+    }
+    sfaces.Sort();
+
+    // create groups and replace the global face id in sfaces[i].one with group id
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_faces;
+    get_shared_ranks(o_mesh, oh::FACE, &shared_faces);
+
+    for (int i = 0; i < sfaces.Size(); i++) {
+      int ent = sfaces[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_faces[ent].size());
+      for (std::set<unsigned int>::iterator itr = shared_faces[ent].begin();
+           itr != shared_faces[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
+      }
+      group.Recreate(eleRanks.Size(), eleRanks);
+      sfaces[i].one = groups.Insert(group) - 1;
+    }
+  } // end conditional for faces
+
+  // Determine shared edges
+  Array<Pair<long, int>> sedges;
+  // Initially sedges[i].one holds the global edge id.
+  // Then it is replaced by the group id of the shared edge.
+  if (Dim > 1) {
+    // Number the edges globally and enumerate the local shared edges
+    // following the global enumeration. This way we ensure that the ordering
+    // of the shared edges within each group (of processors) is the same in
+    // each processor in the group.
+    oh::HostRead<oh::GO> GlobalEdgeNum (o_mesh->globals(1));
+    auto is_shared = mark_shared_ents(o_mesh, 1);
+
+    for (int ent = 0; ent < o_mesh->nedges(); ++ent) {
+      if (is_shared[ent] == 1) {
+        long id = GlobalEdgeNum[ent];
+        sedges.Append(Pair<long,int>(id, ent));
+      }
+    }
+    sedges.Sort();
+
+    // create groups and replace the global id in sfaces[i].one with group id
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_edges;
+    get_shared_ranks(o_mesh, oh::EDGE, &shared_edges);
+
+    for (int i = 0; i < sedges.Size(); i++) {
+      int ent = sedges[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_edges[ent].size());
+      for (std::set<unsigned int>::iterator itr = shared_edges[ent].begin();
+           itr != shared_edges[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
+      }
+      group.Recreate (eleRanks.Size(), eleRanks);
+      sedges[i].one = groups.Insert(group) - 1;
+    }
+  } // end conditional for edges
+
+  // Determine shared vertices
+  Array<Pair<int, int>> sverts;
+  //TODO cleanup redundancy in sverts
+  Array<int> svert_group;
+  {
+    oh::HostRead<oh::GO> GlobalVertNum (o_mesh->globals(0));
+    auto is_shared = mark_shared_ents (o_mesh, 0);
+
+    for (int ent = 0; ent < o_mesh->nverts(); ++ent) {
+      if (is_shared[ent] == 1) {
+        long id = GlobalVertNum[ent];
+        sverts.Append(Pair<int,int>(ent, ent));
+      }
+    }
+    sverts.Sort();
+
+    // create groups and replace the global id in sfaces[i].one with group id
+    svert_group.SetSize(sverts.Size());
+    Array<int> eleRanks;
+    std::map<std::int32_t, std::set<unsigned int>> shared_verts;
+    get_shared_ranks(o_mesh, oh::VERT, &shared_verts);
+
+    for (int i = 0; i < sverts.Size(); i++) {
+      int ent = sverts[i].two;
+      int kk = 0;
+      eleRanks.SetSize(shared_verts[ent].size());
+      for (std::set<unsigned int>::iterator itr = shared_verts[ent].begin();
+           itr != shared_verts[ent].end(); itr++) {
+        eleRanks[kk++] = *itr;
+      }
+      group.Recreate(eleRanks.Size(), eleRanks);
+      svert_group[i] = groups.Insert(group) - 1;
+    }
+  }
+
+  // Build group_stria and group_squad.
+  // Also allocate shared_trias, shared_quads, and sface_lface.
+  group_stria.MakeI(groups.Size()-1);
+  group_squad.MakeI(groups.Size()-1);
+  for (int i = 0; i < sfaces.Size(); i++) {
+    group_stria.AddAColumnInRow(sfaces[i].one);
+  }
+  group_stria.MakeJ();
+  group_squad.MakeJ();
+  {
+    int nst = 0;
+    for (int i = 0; i < sfaces.Size(); i++) {
+      group_stria.AddConnection(sfaces[i].one, nst++);
+    }
+    shared_trias.SetSize(nst);
+    shared_quads.SetSize(sfaces.Size()-nst);
+    sface_lface.SetSize(sfaces.Size());
+  }
+  group_stria.ShiftUpI();
+  group_squad.ShiftUpI();
+
+  // Build group_sedge
+  group_sedge.MakeI(groups.Size()-1);
+  for (int i = 0; i < sedges.Size(); i++) {
+    group_sedge.AddAColumnInRow(sedges[i].one);
+  }
+  group_sedge.MakeJ();
+  for (int i = 0; i < sedges.Size(); i++) {
+    group_sedge.AddConnection(sedges[i].one, i);
+  }
+  group_sedge.ShiftUpI();
+
+  // Build group_svert
+  group_svert.MakeI(groups.Size()-1);
+  for (int i = 0; i < svert_group.Size(); i++) {
+    group_svert.AddAColumnInRow(svert_group[i]);
+  }
+  group_svert.MakeJ();
+  for (int i = 0; i < svert_group.Size(); i++) {
+    group_svert.AddConnection(svert_group[i], i);
+  }
+  group_svert.ShiftUpI();
+
+  // Build shared_trias and shared_quads. They are allocated above.
+  {
+    int nst = 0;
+    oh::HostRead<oh::LO> tri2vert_h (o_mesh->ask_down(2, 0).ab2b);
+    for (int i = 0; i < sfaces.Size(); i++) {
+      int ent = sfaces[i].two;
+      int *v, nv = 0;
+      v = shared_trias[nst++].v;
+      nv = 3; //simplex
+      for (int j = 0; j < nv; ++j) {
+        v[j] = tri2vert_h[ent*nv + j];
+      }
+    }
+  }
+
+  // Build shared_edges and allocate sedge_ledge
+  shared_edges.SetSize(sedges.Size());
+  sedge_ledge. SetSize(sedges.Size());
+  oh::HostRead<oh::LO> edge2vert_h (o_mesh->ask_down(1, 0).ab2b);
+  for (int i = 0; i < sedges.Size(); i++) {
+    int ent = sedges[i].two;
+    int id1, id2;
+    id1 = edge2vert_h[ent*2 + 0];
+    id2 = edge2vert_h[ent*2 + 1];
+    if (id1 > id2) { 
+      auto temp = id1;
+      id1 = id2;
+      id2 = temp;
+    }
+
+    shared_edges[i] = new Segment(id1, id2, 1);
+  }
+
+  // Build svert_lvert
+  svert_lvert.SetSize(sverts.Size());
+  for (int i = 0; i < sverts.Size(); i++) {
+    svert_lvert[i] = sverts[i].two; // local entity id of vert
+  }
+
+  // Build the group communication topology
+  gtopo.Create(groups, 822);
+
+  // Determine sedge_ledge and sface_lface
+  FinalizeParTopo();
+
+  // Set nodes for higher order mesh
+  int curved = o_mesh->is_curved();
+  if (curved > 0) {
+    GridFunctionOmega_h auxNodes(this, o_mesh, o_mesh->get_max_order());
+    Nodes = new ParGridFunction(this, &auxNodes);
+    Nodes->Vector::Swap(auxNodes);
+    this->edge_vertex = NULL;
+    own_nodes = 1;
+  }
+
+  this->Finalize(refine, fix_orientation);
+}
+
+// Transfer information about scalar field to Omega_h
+// takes in omega_h mesh and mfem local field vector
+void OmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
+                const Vector mfem_field, const int dim,
+                std::string const &name) {
+
+  const int nents = o_mesh->nents(dim);
+  if(mfem_field.Size() != nents) 
+    fprintf(stderr, "field size = %d, nents=%d \n", mfem_field.Size(), nents);
+  MFEM_ASSERT(mfem_field.Size() == nents, "invalid size of local field");
+  oh::HostWrite<oh::Real> o_field(nents);
+
+  for (int ent = 0; ent < nents; ++ent) {
+    o_field[ent] = mfem_field(ent);
+  }
+  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
+
+  return;
+}
+
+// Transfer information about scalar field to Omega_h
+// takes in omega_h mesh and mfem local field vector
+void ParOmegaMesh::ElementFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
+                const Vector mfem_field, const int dim,
+                std::string const &name) {
+
+  const int nents = o_mesh->nents(dim);
+  if(mfem_field.Size() != nents) 
+    fprintf(stderr, "field size = %d, nents=%d \n", mfem_field.Size(), nents);
+  MFEM_ASSERT(mfem_field.Size() == nents, "invalid size of local field");
+  oh::HostWrite<oh::Real> o_field(nents);
+
+  for (int ent = 0; ent < nents; ++ent) {
+    o_field[ent] = mfem_field(ent);
+  }
+  o_mesh->add_tag<oh::Real>(dim, name, 1, o_field.write());
+
+  return;
+}
+
+// Transfer tag from omega_h element to omega_h vertex by averaging
+void ParOmegaMesh::ProjectFieldElementtoVertex (oh::Mesh* o_mesh,
+                std::string const &name) {
+
+  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
+  auto vtx2elem = o_mesh->ask_up(0, o_mesh->dim());
+  auto ve2e = vtx2elem.ab2b;
+  auto v2ve = vtx2elem.a2ab;
+  oh::Write<oh::Real> vtx_field(o_mesh->nverts(), 0.0);
+
+  auto get_vtx_field = OMEGA_H_LAMBDA(oh::LO v) {
+    auto start_index = v2ve[v];
+    auto end_index = v2ve[v+1];
+    //get index where adjacent elem id is stored
+    for (oh::LO index = start_index; index < end_index; ++index) {
+      //get the adjacent elem id
+      auto elem = ve2e[index];
+      //add field of adjacent elem
+      //vtx_field[v] += elem_field[elem];
+      if (elem_field[elem] > vtx_field[v]) vtx_field[v] = elem_field[elem];
+    }
+    //average field value
+    //vtx_field[v] = vtx_field[v]/(end_index - start_index);
+  };
+  oh::parallel_for(o_mesh->nverts(), get_vtx_field, "get_vtx_field");
+
+  //add tag
+  oh::Read<oh::Real> vtx_field_r(vtx_field);
+  o_mesh->add_tag<oh::Real>(0, name, 1, vtx_field_r);
+  o_mesh->sync_tag(0, name);
+
+  return;
+}
+
+// Transfer tag from omega_h element to omega_h edge by averaging
+void ParOmegaMesh::ProjectFieldElementtoEdge (oh::Mesh* o_mesh,
+                std::string const &name) {
+
+  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
+  auto edg2elem = o_mesh->ask_up(1, o_mesh->dim());
+  auto ee2e = edg2elem.ab2b;
+  auto e2ee = edg2elem.a2ab;
+  oh::Write<oh::Real> edg_field(o_mesh->nedges(), 0);
+
+  auto get_edg_field = OMEGA_H_LAMBDA(oh::LO e) {
+    auto start_index = e2ee[e];
+    auto end_index = e2ee[e+1];
+    //get index where adjacent elem id is stored
+    for (oh::LO index = start_index; index < end_index; ++index) {
+      //get the adjacent elem id
+      auto elem = ee2e[index];
+      //get field of adjacent elem
+      edg_field[e] += elem_field[elem];
+    }
+    //average field value
+    edg_field[e] = edg_field[e]/(end_index - start_index);
+  };
+  oh::parallel_for(o_mesh->nedges(), get_edg_field, "get_edg_field");
+
+  //add tag
+  oh::Read<oh::Real> edg_field_r(edg_field);
+  o_mesh->add_tag<oh::Real>(1, name, 1, edg_field_r);
+  o_mesh->sync_tag(1, name);
+
+  return;
+}
+
+// Average element fields using neighbouring elements across faces
+void ParOmegaMesh::SmoothElementField (oh::Mesh* o_mesh,
+                std::string const &name) {
+
+  auto elem_field = o_mesh->get_array<oh::Real>(o_mesh->dim(), name);
+  auto elem2elem = o_mesh->ask_dual();// get elem2elem second order adj
+  auto ab2b = elem2elem.ab2b;
+  auto a2ab = elem2elem.a2ab;
+  oh::Write<oh::Real> smooth_field(o_mesh->nelems(), 0.0);
+
+  auto get_smooth_field = OMEGA_H_LAMBDA(oh::LO e) {
+    auto start_index = a2ab[e];
+    auto end_index = a2ab[e+1];
+    //get range of index where adjacent elem id is stored
+    //iterate over adjacent elements
+    for (oh::LO index = start_index; index < end_index; ++index) {
+      //get the adjacent elem id
+      auto adj_elem = ab2b[index];
+      //get field of adjacent elem
+      smooth_field[e] += elem_field[adj_elem];
+    }
+    // add values of self
+    smooth_field[e] += elem_field[e];
+    //average field value
+    smooth_field[e] = smooth_field[e]/(end_index - start_index + 1);
+  };
+  oh::parallel_for(o_mesh->nelems(), get_smooth_field, "get_smooth_field");
+
+  //delete tag
+  o_mesh->remove_tag(o_mesh->dim(), name);
+  //add smoothed tag
+  oh::Read<oh::Real> smooth_field_r(smooth_field);
+  o_mesh->add_tag<oh::Real>(o_mesh->dim(), name, 1, smooth_field_r);
+  o_mesh->sync_tag(o_mesh->dim(), name);
+
+  return;
+}
+
+//Transfer scalar vertex field MFEM to OmegaH
+void ParOmegaMesh::NodalFieldMFEMtoOmegaH (oh::Mesh* o_mesh,
+                  ParGridFunction* field, std::string const &field_name) {
+
+  auto nverts = o_mesh->nverts();
+  Vector field_vals;
+  field->GetNodalValues(field_vals);
+  oh::HostWrite<oh::Real> o_field_h(nverts);
+
+  for (int v = 0; v < nverts; ++v) {
+    o_field_h[v] = field_vals(v);
+  }
+  o_mesh->add_tag<oh::Real>(0, field_name, 1, o_field_h.write());
+
+  return;
+}
+
+//Transfer scalar vertex field OmegaH to MFEM
+void ParOmegaMesh::VertexFieldOmegaHtoMFEM (oh::Mesh* o_mesh,
+                  ParGridFunction* field, std::string const &field_name) {
+
+  auto nverts = o_mesh->nverts();
+  auto o_field = o_mesh->get_array<double>(0, field_name);
+  Vector field_vals(nverts);
+  oh::HostRead<double> o_field_h(o_field);
+
+  for (int v = 0; v < nverts; ++v) {
+    field_vals(v) = o_field_h[v];
+  }
+  *field = field_vals;
+
+  return;
+}
+
+// GridFunction Implementation needed for high order meshes
+GridFunctionOmega_h::GridFunctionOmega_h(
+    Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
+
+  int spDim = m->SpaceDimension();
+  // Note: default BasisType for 'fec' is GaussLobatto.
+  fec = new H1_FECollection(mesh_order, m->Dimension());
+  int ordering = Ordering::byVDIM; // x1y1z1/x2y2z2/...
+  fes = new FiniteElementSpace(m, fec, spDim, ordering);
+  int data_size = fes->GetVSize();
+
+  // init grid fn data
+   this->SetSize(data_size);
+   double* oh_data = this->GetData();
+
+  // Assume all element type are tet
+  const FiniteElement* H1_elem = fes->GetFE(0);
+  const IntegrationRule &All_nodes = H1_elem->GetNodes();
+  int nnodes = All_nodes.Size();
+
+  //query data from omegah on host
+  auto const ev2v_h = oh::HostRead<oh::LO>(o_mesh->get_adj(1,0).ab2b);
+  auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,0).ab2b);
+  auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,1).ab2b);
+  auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
+  if (!o_mesh->has_tag(0, "bezier_pts"))
+    o_mesh->add_tag<oh::Real>(0, "bezier_pts", 3, o_mesh->coords());
+  auto const coords_h = oh::HostRead<oh::Real>(o_mesh->coords());
+  auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
+  auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
+  auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
+
+  //Vector v_c;
+  //m->GetVertices(v_c);
+  //auto m_nv = m->GetNV();
+  // Loop over elements
+  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+    Array<int> vdofs;
+    fes->GetElementVDofs(elem, vdofs);
+
+    // check downward vertices of MFEM element
+    mfem::Array<int> mfem_vid;
+    m->GetElementVertices(elem, mfem_vid);
+    for (int i=0; i<mfem_vid.Size(); ++i) {
+      assert(rv2v_h[elem*4+i] == mfem_vid[i]);
+      /*
+      for (int d=0; d<spDim; ++d) {
+        assert(
+          std::abs(
+            coords_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]]) < 
+          oh::EPSILON);
+      }
+      */
+    }
+
+    for (int ip = 0; ip < nnodes; ip++) {
+      // Take parametric coordinates of the node
+      oh::Vector<3> param;
+      param[0] = All_nodes.IntPoint(ip).x;
+      param[1] = All_nodes.IntPoint(ip).y;
+      param[2] = All_nodes.IntPoint(ip).z;
+
+      // Compute the interpolating coordinates
+      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+          re2e_h, rf2f_h);
+
+      // Fill the nodes list
+      for (int kk = 0; kk < spDim; ++kk) {
+        int dof_ctr = ip + kk * nnodes;
+        oh_data[vdofs[dof_ctr]] = phCrd[kk];
+      }
+    }
+  }
+
+  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+    // Get the solution
+    ElementTransformation* eltr = m->GetElementTransformation(elem);
+    DenseMatrix elemNodes;
+    this->GetVectorValues(*eltr, All_nodes, elemNodes);
+
+    for (int ip = 0; ip < nnodes; ip++) {
+      // Take parametric coordinates of the node
+      oh::Vector<3> param;
+      param[0] = All_nodes.IntPoint(ip).x;
+      param[1] = All_nodes.IntPoint(ip).y;
+      param[2] = All_nodes.IntPoint(ip).z;
+      
+      // Compute the interpolating coordinates
+      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+          re2e_h, rf2f_h);
+      auto mfem_crd = elemNodes.GetColumn(ip);
+      for (int d=0; d<spDim; ++d) {
+        assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+      }
+    }
+
+  }
+
+  fes_sequence = 0;
+}
+
+} // end namespace mfem
+
+#endif // MFEM_USE_OMEGAH
