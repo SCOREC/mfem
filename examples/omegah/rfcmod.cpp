@@ -60,10 +60,13 @@ int main(int argc, char *argv[])
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_709k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_1p1mil_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_625k_p2.osh"
-      "/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_1286k_p2.osh"
+      //"/lore/joshia5/develop/mfem_omega/build-omegah-python-rhel7/test_adapted_1"
+      //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_1286k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_437k_p2.osh"
+      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_314k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_378k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_10smallFeat_343k_p2.osh"
+      //"/lore/joshia5/Meshes/curved/inclusion_3p_sizes.osh"
       , lib.world(), &o_mesh);
 
   if (o_mesh.has_tag(1, "n_bezier_pts")) {
@@ -104,10 +107,13 @@ int main(int argc, char *argv[])
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_709k_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_1p1mil_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_625k_p2.mesh"
-      "/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_1286k_p2.mesh"
+      //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_1286k_p2.mesh"
+      //"/lore/joshia5/develop/mfem_omega/build-omegah-python-rhel7/test_adapted_1.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_437k_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_378k_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_10smallFeat_343k_p2.mesh"
+      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_314k_p2.mesh"
+      //"/lore/joshia5/Meshes/curved/inclusion_3p_sizes.mesh"
       ;
     ofstream mesh_ofs(mesh_path);
     mesh_ofs.precision(8);
