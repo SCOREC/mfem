@@ -20,6 +20,7 @@ if (MFEM_USE_MPI)
     ex2p.cpp
     rfcmod.cpp
     ex3p.cpp
+    par2ser.cpp
   )
 endif()
 
@@ -47,6 +48,7 @@ add_mfem_examples(OMEGAH_EXAMPLES_SRCS ${PFX} "" test_omegah)
 # MFEM_MPI_NP is ignored.
 set(EX1_TEST_NP 1)
 set(RFCMOD_TEST_NP 1)
+set(PAR2SER_TEST_NP 48)
 set(EX1P_TEST_NP 2)
 set(EX6P_TEST_NP 4)
 set(EX27P_TEST_NP 4)
