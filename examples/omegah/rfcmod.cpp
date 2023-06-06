@@ -63,7 +63,8 @@ int main(int argc, char *argv[])
       //"/lore/joshia5/develop/mfem_omega/build-omegah-python-rhel7/test_adapted_1"
       //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_1286k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_437k_p2.osh"
-      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_314k_p2.osh"
+      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_110k_p2.osh"
+      //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_314k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_378k_p2.osh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_10smallFeat_343k_p2.osh"
       //"/lore/joshia5/Meshes/curved/inclusion_3p_sizes.osh"
@@ -112,15 +113,16 @@ int main(int argc, char *argv[])
       //"/lore/joshia5/Meshes/RF/assemble/v11_2rgn_12smallFeat_437k_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_11smallFeat_378k_p2.mesh"
       //"/lore/joshia5/Meshes/RF/assemble/v10_2rgn_10smallFeat_343k_p2.mesh"
-      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_314k_p2.mesh"
+      "/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_110k_p2ELEVp3.mesh"
       //"/lore/joshia5/Meshes/curved/inclusion_3p_sizes.mesh"
       ;
     ofstream mesh_ofs(mesh_path);
-    mesh_ofs.precision(8);
+    mesh_ofs.precision(16);
     pmesh->Print(mesh_ofs);
     printf("written mfem mesh file\n");
 
   } // end adaptation loop
-
+  /*
+*/
   return 0;
 }

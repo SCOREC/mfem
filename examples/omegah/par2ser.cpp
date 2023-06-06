@@ -36,7 +36,17 @@ int main(int argc, char *argv[])
   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
   // 2. Read parmesh
-  std::ifstream mesh_file("/lore/joshia5/develop/RF_petram_case_files/cmod-adapt/150deg/Prat0p5/sol/case_005/solmesh_0");
+  //std::string infile = "/lore/joshia5/develop/RF_petram_case_files/cmod-adapt/150deg/Prat0p5/sol/case_005/solmesh_0.000000";
+  std::string infile = "/lore/joshia5/develop/RF_petram_case_files/cmod-adapt/150deg/Prat0p5/sol/case_005/solmesh_0.0000";
+  if (myid > 9) {
+    infile += std::to_string(myid);
+  }
+  else {
+    infile += std::to_string(0);
+    infile += std::to_string(myid);
+  }
+  std::cout << "rank " << myid << " file " <<infile <<"\n";
+  std::ifstream mesh_file(infile.c_str());
   ParMesh *pmesh = new ParMesh(MPI_COMM_WORLD, mesh_file, false);
   int dim = pmesh->Dimension();
   if (!myid) std::cout << "read parmesh dim " << dim << "\n";

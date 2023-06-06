@@ -120,13 +120,20 @@ int main(int argc, char *argv[])
 #endif
    gmi_register_mesh();
 
+  const char* gmi_native_path = 
+"/lore/joshia5/Models/RF/with_slots/assemble/v10/2rgn_12_nm-smallFeat_nat.x_t";
+  const char* modelFile = 
+"/lore/joshia5/Models/RF/with_slots/assemble/v10/2rgn_12_nm-smallFeat.smd";
+  gmi_model* mdl;
+  mdl = gmi_sim_load(gmi_native_path,modelFile);
    apf::Mesh2* pumi_mesh;
-   pumi_mesh = apf::loadMdsMesh(model_file, mesh_file);
+   pumi_mesh = apf::loadMdsMesh(mdl, mesh_file);
 
    // 4. Increase the geometry order if necessary.
    if (geom_order > 1)
    {
-      crv::BezierCurver bc(pumi_mesh, geom_order, 2);
+      crv::BezierCurver bc(pumi_mesh, geom_order, 0);
+      //crv::BezierCurver bc(pumi_mesh, geom_order, 2);
       bc.run();
    }
 
@@ -135,9 +142,12 @@ int main(int argc, char *argv[])
    // 5. Create the MFEM mesh object from the PUMI mesh. We can handle
    //    triangular and tetrahedral meshes. Other inputs are the same as the
    //    MFEM default constructor.
-   Mesh *mesh = new PumiMesh(pumi_mesh, 1, 1);
+   Mesh *mesh = new PumiMesh(pumi_mesh, 1, 0);
    int dim = mesh->Dimension();
-
+   ofstream mesh_ofs("/lore/joshia5/Meshes/RF/assemble/v10_2rgn_12smallFeat_110k_p2.mesh");
+   mesh_ofs.precision(16);
+   mesh->Print(mesh_ofs);
+/*
    // 6. Refine the mesh to increase the resolution. In this example we do
    //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
    //    largest number that gives a final mesh with no more than 50,000
@@ -235,6 +245,7 @@ int main(int argc, char *argv[])
 
    // 15. Save the refined mesh and the solution. This output can be viewed later
    //     using GLVis: "glvis -m refined.mesh -g sol.gf".
+   //
    ofstream mesh_ofs("refined.mesh");
    mesh_ofs.precision(8);
    mesh->Print(mesh_ofs);
@@ -257,6 +268,7 @@ int main(int argc, char *argv[])
    delete b;
    delete fespace;
    if (order > 0) { delete fec; }
+   */
    delete mesh;
 
    pumi_mesh->destroyNative();
