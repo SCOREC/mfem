@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
     if (!o_mesh.has_tag(0, "bezier_pts")) {
       printf("initializing bez. shape\n");
       oh::calc_quad_ctrlPts_from_interpPts(&o_mesh);
-      oh::elevate_curve_order_2to3(&o_mesh);
+      //oh::elevate_curve_order_2to3(&o_mesh);
       o_mesh.add_tag<oh::Real>(0, "bezier_pts", o_mesh.dim(), o_mesh.coords());
     }
     else {

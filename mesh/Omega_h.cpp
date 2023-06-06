@@ -879,74 +879,136 @@ GridFunctionOmega_h::GridFunctionOmega_h(
   auto const coords_h = oh::HostRead<oh::Real>(o_mesh->coords());
   auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
   auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
-  auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
 
-  //Vector v_c;
-  //m->GetVertices(v_c);
-  //auto m_nv = m->GetNV();
-  // Loop over elements
-  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
-    Array<int> vdofs;
-    fes->GetElementVDofs(elem, vdofs);
+  printf("transferring node info for mesh of order %d\n", mesh_order);
+  // cubic mesh
+  if (mesh_order == 3) {
+    auto const faceCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(2));
 
-    // check downward vertices of MFEM element
-    mfem::Array<int> mfem_vid;
-    m->GetElementVertices(elem, mfem_vid);
-    for (int i=0; i<mfem_vid.Size(); ++i) {
-      assert(rv2v_h[elem*4+i] == mfem_vid[i]);
-      /*
-      for (int d=0; d<spDim; ++d) {
-        assert(
-          std::abs(
-            coords_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]]) < 
-          oh::EPSILON);
+    //Vector v_c;
+    //m->GetVertices(v_c);
+    //auto m_nv = m->GetNV();
+    // Loop over elements
+    for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+      Array<int> vdofs;
+      fes->GetElementVDofs(elem, vdofs);
+
+      // check downward vertices of MFEM element
+      mfem::Array<int> mfem_vid;
+      m->GetElementVertices(elem, mfem_vid);
+      for (int i=0; i<mfem_vid.Size(); ++i) {
+        assert(rv2v_h[elem*4+i] == mfem_vid[i]);
+        /*
+           for (int d=0; d<spDim; ++d) {
+           assert(
+           std::abs(
+           coords_h[rv2v_h[elem*4+i]*spDim+d] - v_c[d*m_nv+ mfem_vid[i]]) < 
+           oh::EPSILON);
+           }
+           */
       }
-      */
+
+      for (int ip = 0; ip < nnodes; ip++) {
+        // Take parametric coordinates of the node
+        oh::Vector<3> param;
+        param[0] = All_nodes.IntPoint(ip).x;
+        param[1] = All_nodes.IntPoint(ip).y;
+        param[2] = All_nodes.IntPoint(ip).z;
+
+        // Compute the interpolating coordinates
+        auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+            re2e_h, rf2f_h);
+
+        // Fill the nodes list
+        for (int kk = 0; kk < spDim; ++kk) {
+          int dof_ctr = ip + kk * nnodes;
+          oh_data[vdofs[dof_ctr]] = phCrd[kk];
+        }
+      }
     }
 
-    for (int ip = 0; ip < nnodes; ip++) {
-      // Take parametric coordinates of the node
-      oh::Vector<3> param;
-      param[0] = All_nodes.IntPoint(ip).x;
-      param[1] = All_nodes.IntPoint(ip).y;
-      param[2] = All_nodes.IntPoint(ip).z;
+    for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+      // Get the solution
+      ElementTransformation* eltr = m->GetElementTransformation(elem);
+      DenseMatrix elemNodes;
+      this->GetVectorValues(*eltr, All_nodes, elemNodes);
 
-      // Compute the interpolating coordinates
-      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-          re2e_h, rf2f_h);
+      for (int ip = 0; ip < nnodes; ip++) {
+        // Take parametric coordinates of the node
+        oh::Vector<3> param;
+        param[0] = All_nodes.IntPoint(ip).x;
+        param[1] = All_nodes.IntPoint(ip).y;
+        param[2] = All_nodes.IntPoint(ip).z;
 
-      // Fill the nodes list
-      for (int kk = 0; kk < spDim; ++kk) {
-        int dof_ctr = ip + kk * nnodes;
-        oh_data[vdofs[dof_ctr]] = phCrd[kk];
+        // Compute the interpolating coordinates
+        auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+            re2e_h, rf2f_h);
+        auto mfem_crd = elemNodes.GetColumn(ip);
+        for (int d=0; d<spDim; ++d) {
+          assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+        }
       }
+
     }
   }
+  // quadratic mesh
+  if (mesh_order == 2) {
+    printf("transferring p2 node info\n");
+    for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+      Array<int> vdofs;
+      fes->GetElementVDofs(elem, vdofs);
 
-  for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
-    // Get the solution
-    ElementTransformation* eltr = m->GetElementTransformation(elem);
-    DenseMatrix elemNodes;
-    this->GetVectorValues(*eltr, All_nodes, elemNodes);
+      // check downward vertices of MFEM element
+      mfem::Array<int> mfem_vid;
+      m->GetElementVertices(elem, mfem_vid);
+      for (int i=0; i<mfem_vid.Size(); ++i) {
+        assert(rv2v_h[elem*4+i] == mfem_vid[i]);
+      }
 
-    for (int ip = 0; ip < nnodes; ip++) {
-      // Take parametric coordinates of the node
-      oh::Vector<3> param;
-      param[0] = All_nodes.IntPoint(ip).x;
-      param[1] = All_nodes.IntPoint(ip).y;
-      param[2] = All_nodes.IntPoint(ip).z;
-      
-      // Compute the interpolating coordinates
-      auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-          rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-          re2e_h, rf2f_h);
-      auto mfem_crd = elemNodes.GetColumn(ip);
-      for (int d=0; d<spDim; ++d) {
-        assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+      for (int ip = 0; ip < nnodes; ip++) {
+        // Take parametric coordinates of the node
+        oh::Vector<3> param;
+        param[0] = All_nodes.IntPoint(ip).x;
+        param[1] = All_nodes.IntPoint(ip).y;
+        param[2] = All_nodes.IntPoint(ip).z;
+
+        // Compute the interpolating coordinates
+        auto phCrd = rgn_parametricToParent_3dp2_h(mesh_order, elem, 
+            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, param, re2e_h);
+
+        // Fill the nodes list
+        for (int kk = 0; kk < spDim; ++kk) {
+          int dof_ctr = ip + kk * nnodes;
+          oh_data[vdofs[dof_ctr]] = phCrd[kk];
+        }
       }
     }
 
+    for (int elem = 0; elem < o_mesh->nelems(); ++elem) {
+      // Get the solution
+      ElementTransformation* eltr = m->GetElementTransformation(elem);
+      DenseMatrix elemNodes;
+      this->GetVectorValues(*eltr, All_nodes, elemNodes);
+
+      for (int ip = 0; ip < nnodes; ip++) {
+        // Take parametric coordinates of the node
+        oh::Vector<3> param;
+        param[0] = All_nodes.IntPoint(ip).x;
+        param[1] = All_nodes.IntPoint(ip).y;
+        param[2] = All_nodes.IntPoint(ip).z;
+
+        // Compute the interpolating coordinates
+        auto phCrd = rgn_parametricToParent_3dp2_h(mesh_order, elem, 
+            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, param, re2e_h);
+        auto mfem_crd = elemNodes.GetColumn(ip);
+        for (int d=0; d<spDim; ++d) {
+          assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+        }
+      }
+
+    }
   }
 
   fes_sequence = 0;
