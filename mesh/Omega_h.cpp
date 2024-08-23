@@ -311,7 +311,9 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
 
   // Set nodes for higher order mesh
   if (curved > 0) {
+    printf("curving the mfem mesh 0\n");
     Nodes = new GridFunctionOmega_h(this, o_mesh, o_mesh->get_max_order());
+    printf("created gf\n");
     edge_vertex = NULL;
     own_nodes = 1;
     spaceDim = Nodes->VectorDim();
@@ -324,6 +326,7 @@ OmegaMesh::OmegaMesh (oh::Mesh* o_mesh, const int refine,
         vertices[j](i) = vert_val(j);
       }
     }
+    printf("curved the mfem mesh 1\n");
 
   }
 
@@ -853,7 +856,7 @@ void ParOmegaMesh::VertexFieldOmegaHtoMFEM (oh::Mesh* o_mesh,
 GridFunctionOmega_h::GridFunctionOmega_h(
     Mesh* m, oh::Mesh* o_mesh, const int mesh_order) {
 
-  int spDim = m->SpaceDimension();
+  const int spDim = m->SpaceDimension();
   // Note: default BasisType for 'fec' is GaussLobatto.
   fec = new H1_FECollection(mesh_order, m->Dimension());
   int ordering = Ordering::byVDIM; // x1y1z1/x2y2z2/...
@@ -871,11 +874,14 @@ GridFunctionOmega_h::GridFunctionOmega_h(
 
   //query data from omegah on host
   auto const ev2v_h = oh::HostRead<oh::LO>(o_mesh->get_adj(1,0).ab2b);
-  auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,0).ab2b);
-  auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(3,1).ab2b);
-  auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(3,2).ab2b);
+  printf("spDim %d\n", spDim);
+  auto r2v_degree = oh::element_degree (OMEGA_H_SIMPLEX, spDim, oh::VERT);
+  auto const rv2v_h = oh::HostRead<oh::LO>(o_mesh->ask_down(spDim,0).ab2b);
+  auto const re2e_h = oh::HostRead<oh::LO>(o_mesh->ask_down(spDim,1).ab2b);
+  auto const rf2f_h = oh::HostRead<oh::LO>(o_mesh->get_adj(spDim,spDim-1).ab2b);
+
   if (!o_mesh->has_tag(0, "bezier_pts"))
-    o_mesh->add_tag<oh::Real>(0, "bezier_pts", 3, o_mesh->coords());
+    o_mesh->add_tag<oh::Real>(0, "bezier_pts", spDim, o_mesh->coords());
   auto const coords_h = oh::HostRead<oh::Real>(o_mesh->coords());
   auto const vertCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(0));
   auto const edgeCtrlPts_h = oh::HostRead<oh::Real>(o_mesh->get_ctrlPts(1));
@@ -897,7 +903,8 @@ GridFunctionOmega_h::GridFunctionOmega_h(
       mfem::Array<int> mfem_vid;
       m->GetElementVertices(elem, mfem_vid);
       for (int i=0; i<mfem_vid.Size(); ++i) {
-        assert(rv2v_h[elem*4+i] == mfem_vid[i]);
+        assert(rv2v_h[elem*r2v_degree+i] == mfem_vid[i]);
+        //assert(rv2v_h[elem*4+i] == mfem_vid[i]);
         /*
            for (int d=0; d<spDim; ++d) {
            assert(
@@ -910,20 +917,40 @@ GridFunctionOmega_h::GridFunctionOmega_h(
 
       for (int ip = 0; ip < nnodes; ip++) {
         // Take parametric coordinates of the node
-        oh::Vector<3> param;
-        param[0] = All_nodes.IntPoint(ip).x;
-        param[1] = All_nodes.IntPoint(ip).y;
-        param[2] = All_nodes.IntPoint(ip).z;
+        if (spDim == 3) {
+          oh::Vector<3> param;
+          param[0] = All_nodes.IntPoint(ip).x;
+          param[1] = All_nodes.IntPoint(ip).y;
+          param[2] = All_nodes.IntPoint(ip).z;
 
-        // Compute the interpolating coordinates
-        auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-            re2e_h, rf2f_h);
+          // Compute the interpolating coordinates
+          auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+              rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+              re2e_h, rf2f_h);
 
-        // Fill the nodes list
-        for (int kk = 0; kk < spDim; ++kk) {
-          int dof_ctr = ip + kk * nnodes;
-          oh_data[vdofs[dof_ctr]] = phCrd[kk];
+          // Fill the nodes list
+          for (int kk = 0; kk < spDim; ++kk) {
+            int dof_ctr = ip + kk * nnodes;
+            oh_data[vdofs[dof_ctr]] = phCrd[kk];
+          }
+        }
+        else {
+          OMEGA_H_CHECK(spDim == 2);
+          oh::Vector<2> param;
+          param[0] = All_nodes.IntPoint(ip).x;
+          param[1] = All_nodes.IntPoint(ip).y;
+          //param[2] = All_nodes.IntPoint(ip).z;
+
+          // Compute the interpolating coordinates
+          auto phCrd = face_parametricToParent_2d_h(mesh_order, elem, ev2v_h, 
+              re2e_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param[0],
+              param[1], rv2v_h);
+
+          // Fill the nodes list
+          for (int kk = 0; kk < spDim; ++kk) {
+            int dof_ctr = ip + kk * nnodes;
+            oh_data[vdofs[dof_ctr]] = phCrd[kk];
+          }
         }
       }
     }
@@ -936,18 +963,20 @@ GridFunctionOmega_h::GridFunctionOmega_h(
 
       for (int ip = 0; ip < nnodes; ip++) {
         // Take parametric coordinates of the node
-        oh::Vector<3> param;
-        param[0] = All_nodes.IntPoint(ip).x;
-        param[1] = All_nodes.IntPoint(ip).y;
-        param[2] = All_nodes.IntPoint(ip).z;
+        if (spDim == 3) {
+          oh::Vector<3> param;
+          param[0] = All_nodes.IntPoint(ip).x;
+          param[1] = All_nodes.IntPoint(ip).y;
+          param[2] = All_nodes.IntPoint(ip).z;
 
-        // Compute the interpolating coordinates
-        auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
-            rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
-            re2e_h, rf2f_h);
-        auto mfem_crd = elemNodes.GetColumn(ip);
-        for (int d=0; d<spDim; ++d) {
-          assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+          // Compute the interpolating coordinates
+          auto phCrd = rgn_parametricToParent_3d_h(mesh_order, elem, ev2v_h, 
+              rv2v_h, vertCtrlPts_h, edgeCtrlPts_h, faceCtrlPts_h, param, 
+              re2e_h, rf2f_h);
+          auto mfem_crd = elemNodes.GetColumn(ip);
+          for (int d=0; d<spDim; ++d) {
+            assert(std::abs(phCrd[d]-mfem_crd[d]) < oh::EPSILON);
+          }
         }
       }
 
