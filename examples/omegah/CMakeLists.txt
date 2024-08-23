@@ -13,6 +13,7 @@ set(OMEGAH_EXAMPLES_SRCS)
 # All omegah examples require MPI
 if (MFEM_USE_MPI)
   list(APPEND OMEGAH_EXAMPLES_SRCS
+    jacdet.cpp
     ex1.cpp
     ex1p.cpp
     ex6p.cpp
@@ -46,9 +47,9 @@ add_mfem_examples(OMEGAH_EXAMPLES_SRCS ${PFX} "" test_omegah)
 
 # Set the number of processors for the parallel examples. The value of
 # MFEM_MPI_NP is ignored.
+set(JACDET_TEST_NP 1)
 set(EX1_TEST_NP 1)
 set(RFCMOD_TEST_NP 1)
-set(PAR2SER_TEST_NP 48)
 set(EX1P_TEST_NP 2)
 set(EX6P_TEST_NP 4)
 set(EX27P_TEST_NP 4)
